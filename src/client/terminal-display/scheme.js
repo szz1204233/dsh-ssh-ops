@@ -2,18 +2,47 @@ import { COLORS, colorsForTheme, HIGHLIGHT_RULES } from "./rules.js";
 import { normalizeCustomRules } from "./custom-rules.js";
 
 export const MAX_SCHEME_ENTRIES = 43;
-export const MAX_SCHEME_TEXT = 2048;
+export const MAX_SCHEME_TEXT = 8192;
+export const MAX_PATTERN_LENGTH = 512;
+export const MAX_PATTERNS = 64;
 const KEYWORDS = {
   error: 'ERROR\nerrors\nFATAL\nPANIC\nFAILED\nfail\nfailure\nfalse\ndenied\nrefused\nWARNING\nwarn\nbad\ncannot\nincorrect\ninvalid\nunknown\nunsupported\nwrong\ndeprecated\ndisabled\nimportant\nno\nnone\nnot\nnot successful\nnot supported\ncan\'t be supported',
   success: 'SUCCESS\nsuccessful\nsuccessfully\nSUCCEEDED\ntrue\nyes\nok\npass\npassed\ncorrect\ncorrectly\nknown\nsupported\nvalid\ncan',
   warning: 'debug\nsudo\nclosed\nexited\ndisconnected\nskipped\nstopped\nterminated',
   info: 'INFO\naccess\nany\nauthentication\nconnection\ndisconnection\nlogin\noperation\npassword\npermission'
 };
+const AUTO_IDS = {
+  heading: ["mac", "ipv4", "ipv6", "datetime", "operator"], number: ["number"], string: ["string"], option: ["option"], debug: ["permissions"],
+  error: ["error"], success: ["success"], warning: ["warning"], info: ["info"]
+};
+const CONTEXT_PATTERNS = {
+  command: String.raw`(?<=[#$>%]\s)[\w.-]+|(?<=\|\s)[\w.-]+`,
+  prompt: String.raw`[$#%>](?=\s)`,
+  string: String.raw`(?:~?\/|[\w.-]+\/)[^\s"'|;<>]*`
+};
+const DEFAULT_TEXT = Object.fromEntries(Object.keys(COLORS).map((id) => [id, KEYWORDS[id] ?? [
+  ...(AUTO_IDS[id] ?? []).map((ruleId) => HIGHLIGHT_RULES.find((rule) => rule.id === ruleId).pattern.source),
+  ...(CONTEXT_PATTERNS[id] ? [CONTEXT_PATTERNS[id]] : [])
+].join("\n")]));
 const DEFAULTS = Object.fromEntries(["dark", "light"].map((theme) => [theme, Object.freeze(Object.keys(COLORS).map((id) => Object.freeze({
-  id, color: colorsForTheme(theme)[id], enabled: true, text: KEYWORDS[id] ?? "",
-  mode: KEYWORDS[id] ? "word" : "auto", caseSensitive: false
+  id, color: colorsForTheme(theme)[id], enabled: true, text: DEFAULT_TEXT[id], mode: "regex", caseSensitive: false
 })))]));
 export const defaultScheme = (theme) => DEFAULTS[theme === "light" ? "light" : "dark"];
+export const splitPatterns = (text) => [...new Set(text.split("\n").map((value) => value.trim()).filter(Boolean))];
+export function patternProblem(source) {
+  if (source.length > MAX_PATTERN_LENGTH) return "pattern-too-long";
+  try { new RegExp(source, "gu"); return ""; } catch { return "invalid-regex"; }
+}
+function escapeRegexLiteral(text) { return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"); }
+function legacyPatterns(item) {
+  if (item.mode === "regex") return item.text;
+  if (item.mode === "auto") return [DEFAULT_TEXT[item.id] ?? "", ...splitPatterns(item.text).map(escapeRegexLiteral)].filter(Boolean).join("\n");
+  if (item.mode === "word" && KEYWORDS[item.id] === item.text) return DEFAULT_TEXT[item.id];
+  return splitPatterns(item.text).map((text) => {
+    const escaped = escapeRegexLiteral(text);
+    return item.mode === "word" ? String.raw`(?<![\p{L}\p{N}_])(?:${escaped})(?![\p{L}\p{N}_])` : escaped;
+  }).join("\n");
+}
 
 export function normalizeScheme(value) {
   if (!Array.isArray(value)) return undefined;
@@ -25,7 +54,7 @@ export function normalizeScheme(value) {
       || typeof item.text !== "string" || item.text.length > MAX_SCHEME_TEXT || /[\x00-\x08\x0b\x0c\x0e-\x1f]/.test(item.text)) continue;
     ids.add(item.id);
     entries.push(Object.freeze({ id: item.id, color: item.color.toLowerCase(), enabled: item.enabled !== false,
-      text: item.text.replace(/\r\n?/g, "\n"), mode: ["contains", "word"].includes(item.mode) || (item.mode === "auto" && Object.hasOwn(COLORS, item.id)) ? item.mode : "contains",
+      text: legacyPatterns({ ...item, text: item.text.replace(/\r\n?/g, "\n") }).slice(0, MAX_SCHEME_TEXT), mode: "regex",
       caseSensitive: item.caseSensitive === true,
       ...(!Object.hasOwn(COLORS, item.id) ? { name: typeof item.name === "string" ? item.name.slice(0, 80) : "" } : {}) }));
   }
@@ -46,24 +75,19 @@ export function getScheme(settings, theme) {
   ]);
 }
 
-const AUTO_IDS = {
-  heading: ["mac", "ipv4", "ipv6", "datetime", "operator"], number: ["number"], string: ["string"], option: ["option"], debug: ["permissions"],
-  error: ["error"], success: ["success"], warning: ["warning"], info: ["info"]
-};
 export function compileScheme(entries) {
   const rules = [], automatic = [], colors = Object.create(null);
   const context = [];
   for (const entry of entries) {
     if (!entry.enabled) continue;
     colors[entry.id] = entry.color;
-    const defaultKeywords = entry.mode === "word" && !entry.caseSensitive && KEYWORDS[entry.id] === entry.text;
-    const words = [...new Set(entry.text.split("\n").map((text) => text.trim()).filter(Boolean))].sort((a, b) => b.length - a.length);
-    if (words.length && !defaultKeywords) {
-      const literals = words.map((text) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|");
-      rules.push({ id: `text:${entry.id}`, color: entry.id,
-        pattern: new RegExp(entry.mode === "word" ? `(?<![\\p{L}\\p{N}_])(?:${literals})(?![\\p{L}\\p{N}_])` : `(?:${literals})`, entry.caseSensitive ? "gu" : "giu") });
+    const unchanged = entry.text === DEFAULT_TEXT[entry.id] && !entry.caseSensitive;
+    if (!unchanged) {
+      for (const source of splitPatterns(entry.text).slice(0, MAX_PATTERNS).sort((a, b) => b.length - a.length)) {
+        if (!patternProblem(source)) rules.push({ id: `regex:${entry.id}`, color: entry.id, pattern: new RegExp(source, entry.caseSensitive ? "gu" : "giu") });
+      }
     }
-    if ((entry.mode === "auto" || defaultKeywords) && Object.hasOwn(COLORS, entry.id)) {
+    if (unchanged && Object.hasOwn(COLORS, entry.id)) {
       if (["command", "string", "prompt"].includes(entry.id)) context.push(entry.id);
       for (const id of AUTO_IDS[entry.id] ?? []) {
         const rule = HIGHLIGHT_RULES.find((item) => item.id === id);
@@ -78,5 +102,5 @@ export function compileScheme(entries) {
 }
 
 export function exportScheme(settings, theme) {
-  return JSON.stringify({ format: "dsh-ssh-ops.color-scheme", version: 1, theme, entries: getScheme(settings, theme) }, null, 2) + "\n";
+  return JSON.stringify({ format: "dsh-ssh-ops.color-scheme", version: 2, theme, entries: getScheme(settings, theme) }, null, 2) + "\n";
 }

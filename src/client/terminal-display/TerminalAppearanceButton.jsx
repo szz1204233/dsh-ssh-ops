@@ -14,7 +14,7 @@ function AppearanceDialog({ onClose }) {
   }, []);
   return <dialog ref={ref} aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); close(); }}
     onClick={(event) => { if (event.target === event.currentTarget) close(); }}
-    style={{ padding: 0, width: "min(440px, calc(100vw - 32px))", maxWidth: "calc(100vw - 32px)", maxHeight: "min(760px, 85vh)",
+    style={{ padding: 0, width: "min(1040px, calc(100vw - 48px))", maxWidth: "calc(100vw - 32px)", maxHeight: "min(760px, 85vh)",
       border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 10, color: "var(--dsh-ssh-ops-text, #d7dbe2)",
       background: "var(--dsh-ssh-ops-surface, #161b21)", boxShadow: "0 12px 40px rgba(0,0,0,.22)", overflow: "hidden" }}>
     <div onClick={(event) => event.stopPropagation()} style={{ display: "flex", flexDirection: "column", maxHeight: "min(760px, 85vh)" }}>

@@ -2,9 +2,10 @@ import { COLORS, HIGHLIGHT_RULES } from "./rules.js";
 
 // Tokenize a logical line. Reserve whole tokens before the cell-style filter,
 // so ANSI-styled fragments cannot make a lower-priority rule leak through.
-export function matchText(text, rules = HIGHLIGHT_RULES, colors = COLORS) {
+export function matchText(text, rules = HIGHLIGHT_RULES, colors = COLORS, limit = 4096) {
   const occupied = new Uint8Array(text.length), spans = [];
   const add = (start, end, color) => {
+    if (spans.length >= limit) return;
     if (!color) return;
     if (occupied.subarray(start, end).some(Boolean)) return;
     occupied.fill(1, start, end); spans.push({ start, end, color });
@@ -13,6 +14,7 @@ export function matchText(text, rules = HIGHLIGHT_RULES, colors = COLORS) {
   const prompt = /^(?![-+])[^\n]*?(?:[$#>]|(?<!\d)%)[ \t]+/.exec(text);
   const context = prompt ? prompt[0].length : -1;
   for (const rule of rules) {
+    if (spans.length >= limit) break;
     if ((rule.id === "context" || (rule.id === "mac" && rule.context !== false)) && context >= 0) {
       const enabled = (key) => !Array.isArray(rule.context) || rule.context.includes(key);
       for (const command of enabled("command") ? text.slice(context).matchAll(/(?:^|[|])\s*([\w.-]+)(?=\s|$)/g) : []) {
@@ -26,6 +28,7 @@ export function matchText(text, rules = HIGHLIGHT_RULES, colors = COLORS) {
     if (!rule.pattern) continue;
     const regex = new RegExp(rule.pattern.source, rule.pattern.flags.replace(/[gy]/g, "") + "g");
     for (const m of text.matchAll(regex)) {
+      if (spans.length >= limit) break;
       if (!m[0].length || (rule.accept && !rule.accept(m[0]))) continue;
       if (rule.option && m[0].includes("=")) {
         const split = m.index + m[0].indexOf("=");
@@ -72,8 +75,11 @@ export function readLogicalLine(buffer, start, maxCells = 16384) {
 }
 
 export function matchLogicalLine(logical, viewportStart, viewportEnd, limit = 4096, colors = COLORS, rules = HIGHLIGHT_RULES) {
+  return spansToRuns(logical, matchText(logical.text, rules, colors, limit), viewportStart, viewportEnd, limit);
+}
+export function spansToRuns(logical, spans, viewportStart, viewportEnd, limit = 4096) {
   const runs = [];
-  for (const span of matchText(logical.text, rules, colors)) {
+  for (const span of spans) {
     let run;
     let previous;
     for (let i = span.start; i < span.end; i++) {

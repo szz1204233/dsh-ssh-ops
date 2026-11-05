@@ -1,3 +1,4 @@
+import { acquireTestMatcher } from "./helpers/highlight-worker.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import xterm from "@xterm/xterm";
@@ -94,22 +95,22 @@ test("theme and highlighting apply to all live terminals, including while disabl
   const original = getDisplaySettings();
   setDisplaySettings({ theme: "dark", highlightEnabled: true });
   const terminals = [new xterm.Terminal({ cols: 40, rows: 3, allowProposedApi: true }), new xterm.Terminal({ cols: 40, rows: 3, allowProposedApi: true })];
-  const addons = terminals.map((term) => { const addon = new OutputHighlightAddon(); term.loadAddon(addon); return addon; });
+  const addons = terminals.map((term) => { const addon = new OutputHighlightAddon({ acquireMatcher: acquireTestMatcher }); term.loadAddon(addon); return addon; });
   try {
     for (const term of terminals) await new Promise((resolve) => term.write('ERROR 42 SUCCESS', resolve));
-    for (const addon of addons) addon.scan();
+    for (const addon of addons) await addon.scan();
     const before = addons.map((addon) => addon.rows[0].signature);
     assert.ok(before.every((signature) => signature.includes(COLORS.error)));
     setDisplaySettings({ theme: "light" });
     for (let i = 0; i < terminals.length; i++) {
       assert.equal(terminals[i].options.theme.background, "#ffffff");
-      addons[i].scan(); assert.ok(addons[i].rows[0].signature.includes(LIGHT_COLORS.error));
+      await addons[i].scan(); assert.ok(addons[i].rows[0].signature.includes(LIGHT_COLORS.error));
     }
     setDisplaySettings({ highlightEnabled: false });
     assert.ok(addons.every((addon) => addon.rows.length === 0));
     setDisplaySettings({ theme: "dark" });
     assert.ok(terminals.every((term) => term.options.theme.background === "#1c1c1c"));
-    const added = new xterm.Terminal({ allowProposedApi: true }); added.loadAddon(new OutputHighlightAddon());
+    const added = new xterm.Terminal({ allowProposedApi: true }); added.loadAddon(new OutputHighlightAddon({ acquireMatcher: acquireTestMatcher }));
     assert.equal(added.options.theme.background, "#1c1c1c"); added.dispose();
   } finally { terminals.forEach((term) => term.dispose()); setDisplaySettings(original); }
 });
@@ -139,19 +140,19 @@ test("all live terminals recolor immediately, reset per theme, and reject invali
   const original = getDisplaySettings();
   setDisplaySettings({ theme: "dark", highlightEnabled: true, colors: {} });
   const terminals = Array.from({ length: 2 }, () => new xterm.Terminal({ cols: 30, rows: 3, allowProposedApi: true }));
-  const addons = terminals.map((term) => { const addon = new OutputHighlightAddon(); term.loadAddon(addon); return addon; });
+  const addons = terminals.map((term) => { const addon = new OutputHighlightAddon({ acquireMatcher: acquireTestMatcher }); term.loadAddon(addon); return addon; });
   try {
     for (const term of terminals) await new Promise((resolve) => term.write('ERROR', resolve));
     setDisplayColor("dark", "error", "#FF8800");
-    for (const addon of addons) { addon.scan(); assert.ok(addon.rows[0].signature.includes("#ff8800")); }
+    for (const addon of addons) { await addon.scan(); assert.ok(addon.rows[0].signature.includes("#ff8800")); }
     const snapshot = getDisplaySettings();
     setDisplayColor("dark", "error", "red"); setDisplayColor("unknown", "error", "#123456");
     assert.equal(getDisplaySettings(), snapshot);
     setDisplayColor("light", "error", "#0055aa"); resetDisplayColors("dark");
     assert.equal(getDisplaySettings().colors.light.error, "#0055aa");
-    for (const addon of addons) { addon.scan(); assert.ok(addon.rows[0].signature.includes(COLORS.error)); }
+    for (const addon of addons) { await addon.scan(); assert.ok(addon.rows[0].signature.includes(COLORS.error)); }
     setDisplaySettings({ theme: "light" });
-    for (const addon of addons) { addon.scan(); assert.ok(addon.rows[0].signature.includes("#0055aa")); }
+    for (const addon of addons) { await addon.scan(); assert.ok(addon.rows[0].signature.includes("#0055aa")); }
   } finally { terminals.forEach((term) => term.dispose()); setDisplaySettings({ ...original, colors: original.colors ?? {} }); }
 });
 
@@ -183,25 +184,25 @@ test("rule add/edit/reorder/toggle/delete update every live terminal and preserv
   const original = getDisplaySettings();
   setDisplaySettings({ theme: "dark", highlightEnabled: true, builtinEnabled: false, customRules: [] });
   const terminals = [0, 1].map(() => new xterm.Terminal({ cols: 60, rows: 3, allowProposedApi: true }));
-  const addons = terminals.map((term) => { const addon = new OutputHighlightAddon(); term.loadAddon(addon); return addon; });
+  const addons = terminals.map((term) => { const addon = new OutputHighlightAddon({ acquireMatcher: acquireTestMatcher }); term.loadAddon(addon); return addon; });
   const first = { id: "one", text: "业务失败", color: "error" };
   try {
     for (const term of terminals) await new Promise((resolve) => term.write("业务失败 ERROR \x1b[36m业务失败\x1b[0m", resolve));
-    for (const addon of addons) { addon.scan(); assert.equal(addon.rows.length, 0); }
+    for (const addon of addons) { await addon.scan(); assert.equal(addon.rows.length, 0); }
     assert.equal(saveDisplayRule(first), true);
-    for (const addon of addons) { addon.scan(); assert.ok(addon.rows[0].signature.includes(COLORS.error)); }
+    for (const addon of addons) { await addon.scan(); assert.ok(addon.rows[0].signature.includes(COLORS.error)); }
     assert.equal(saveDisplayRule({ id: "two", text: "业务失败", color: "success" }), true);
     moveDisplayRule("two", -1);
-    for (const addon of addons) { addon.scan(); assert.ok(addon.rows[0].signature.includes(COLORS.success)); }
+    for (const addon of addons) { await addon.scan(); assert.ok(addon.rows[0].signature.includes(COLORS.success)); }
     saveDisplayRule({ ...getDisplaySettings().customRules[0], enabled: false });
-    for (const addon of addons) { addon.scan(); assert.ok(addon.rows[0].signature.includes(COLORS.error)); }
+    for (const addon of addons) { await addon.scan(); assert.ok(addon.rows[0].signature.includes(COLORS.error)); }
     saveDisplayRule({ ...first, color: "info" });
     for (const addon of addons) {
-      addon.scan(); assert.ok(addon.rows[0].signature.includes(COLORS.info));
+      await addon.scan(); assert.ok(addon.rows[0].signature.includes(COLORS.info));
       assert.equal(addon.rows[0].decorations.length, 1, "the remote-colored copy remains untouched");
     }
     deleteDisplayRule("one");
-    for (const addon of addons) { addon.scan(); assert.equal(addon.rows.length, 0); }
+    for (const addon of addons) { await addon.scan(); assert.equal(addon.rows.length, 0); }
     assert.equal(saveDisplayRule({ ...first, text: "" }), false);
   } finally {
     terminals.forEach((term) => term.dispose());
@@ -247,17 +248,17 @@ test("editing a scheme entry replaces its matching text, toggles locally and upd
   const original = getDisplaySettings();
   setDisplaySettings({ theme: "dark", highlightEnabled: true, schemes: {}, colors: {}, customRules: [], builtinEnabled: true });
   const terminals = [0, 1].map(() => new xterm.Terminal({ cols: 50, rows: 3, allowProposedApi: true }));
-  const addons = terminals.map((term) => { const addon = new OutputHighlightAddon(); term.loadAddon(addon); return addon; });
+  const addons = terminals.map((term) => { const addon = new OutputHighlightAddon({ acquireMatcher: acquireTestMatcher }); term.loadAddon(addon); return addon; });
   try {
     for (const term of terminals) await new Promise((resolve) => term.write("ERROR BROKEN \x1b[36mBROKEN\x1b[0m", resolve));
     updateScheme("dark", (entries) => entries.map((entry) => entry.id === "error" ? { ...entry, text: "BROKEN", color: "#123456" } : entry));
     for (const addon of addons) {
-      addon.scan();
+      await addon.scan();
       const runs = JSON.parse(addon.rows[0].signature);
       assert.deepEqual(runs.filter((run) => run.foregroundColor === "#123456"), [{ x: 6, width: 6, foregroundColor: "#123456" }]);
     }
     updateScheme("dark", (entries) => entries.map((entry) => entry.id === "error" ? { ...entry, enabled: false } : entry));
-    for (const addon of addons) { addon.scan(); assert.equal(addon.rows.length, 0); }
+    for (const addon of addons) { await addon.scan(); assert.equal(addon.rows.length, 0); }
     setDisplaySettings({ highlightEnabled: false });
     assert.ok(addons.every((addon) => addon.rows.length === 0));
   } finally {

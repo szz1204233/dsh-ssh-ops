@@ -1,3 +1,4 @@
+import { acquireTestMatcher } from "./helpers/highlight-worker.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import xterm from "@xterm/xterm";
@@ -113,33 +114,33 @@ test("wide glyph wrap padding is excluded without losing real spaces", async () 
 test("row cache, CR overwrite, alternate buffer, global toggle and disposal", async () => {
   setDisplaySettings({ highlightEnabled: true });
   const term = new xterm.Terminal({ cols: 50, rows: 4, allowProposedApi: true });
-  const addon = new OutputHighlightAddon();
+  const addon = new OutputHighlightAddon({ acquireMatcher: acquireTestMatcher });
   let creations = 0;
   const register = term.registerDecoration.bind(term);
   term.registerDecoration = (options) => { creations++; return register(options); };
   term.loadAddon(addon);
   try {
-    await write(term, 'ERROR 42 SUCCESS'); addon.scan();
+    await write(term, 'ERROR 42 SUCCESS'); await addon.scan();
     assert.equal(term.options.theme.background, WINDTERM_DARK_THEME.background);
     assert.equal(term.options.theme.red, WINDTERM_DARK_THEME.red);
     const initial = creations;
-    addon.scan(); assert.equal(creations, initial);
+    await addon.scan(); assert.equal(creations, initial);
     assert.equal(addon.rows.length, 1);
-    await write(term, '\r\x1b[2Kplain'); addon.scan(); assert.equal(addon.rows.length, 0);
-    await write(term, '\r\x1b[2KERROR'); addon.scan();
-    await write(term, '\x1b[?1049hERROR'); addon.scan(); assert.equal(addon.rows.length, 0);
-    await write(term, '\x1b[?1049l'); addon.scan(); assert.equal(addon.rows.length, 1);
+    await write(term, '\r\x1b[2Kplain'); await addon.scan(); assert.equal(addon.rows.length, 0);
+    await write(term, '\r\x1b[2KERROR'); await addon.scan();
+    await write(term, '\x1b[?1049hERROR'); await addon.scan(); assert.equal(addon.rows.length, 0);
+    await write(term, '\x1b[?1049l'); await addon.scan(); assert.equal(addon.rows.length, 1);
     setDisplaySettings({ highlightEnabled: false }); assert.equal(addon.rows.length, 0);
-    setDisplaySettings({ highlightEnabled: true }); addon.scan(); assert.equal(addon.rows.length, 1);
+    setDisplaySettings({ highlightEnabled: true }); await addon.scan(); assert.equal(addon.rows.length, 1);
   } finally { term.dispose(); }
   assert.equal(addon.rows.length, 0);
 });
 test("scrollback trimming and continuous output remain bounded", async () => {
   const term = new xterm.Terminal({ cols: 80, rows: 20, scrollback: 30, allowProposedApi: true });
-  const addon = new OutputHighlightAddon(); term.loadAddon(addon);
+  const addon = new OutputHighlightAddon({ acquireMatcher: acquireTestMatcher }); term.loadAddon(addon);
   try {
     for (let i = 0; i < 10; i++) {
-      await write(term, ('2026-10-30 ERROR connection 192.168.1.2 retries=42\r\n').repeat(200)); addon.scan();
+      await write(term, ('2026-10-30 ERROR connection 192.168.1.2 retries=42\r\n').repeat(200)); await addon.scan();
       assert.ok(addon.rows.length <= term.rows);
       assert.ok(term.markers.length <= term.rows);
       assert.ok(addon.rows.reduce((n, r) => n + r.decorations.length, 0) <= 4096);
@@ -149,28 +150,28 @@ test("scrollback trimming and continuous output remain bounded", async () => {
 
 test("unchanged visible rows reuse their decorations after scrollback trims", async () => {
   const term = new xterm.Terminal({ cols: 30, rows: 4, scrollback: 3, allowProposedApi: true });
-  const addon = new OutputHighlightAddon(); term.loadAddon(addon);
+  const addon = new OutputHighlightAddon({ acquireMatcher: acquireTestMatcher }); term.loadAddon(addon);
   try {
-    await write(term, 'ERROR 42\r\n'.repeat(8)); addon.scan();
+    await write(term, 'ERROR 42\r\n'.repeat(8)); await addon.scan();
     const markers = new Set(addon.rows.map((row) => row.marker));
-    await write(term, 'ERROR 42\r\n'); addon.scan();
+    await write(term, 'ERROR 42\r\n'); await addon.scan();
     assert.ok(addon.rows.some((row) => markers.has(row.marker)), 'scrollback movement should not recreate every visible decoration');
   } finally { term.dispose(); }
 });
 test("failed decoration API cleans marker and disables only the addon", async () => {
   const original = getDisplaySettings();
   const term = new xterm.Terminal({ cols: 30, rows: 3, allowProposedApi: true });
-  const addon = new OutputHighlightAddon();
+  const addon = new OutputHighlightAddon({ acquireMatcher: acquireTestMatcher });
   term.registerDecoration = () => { throw Error('unsupported API'); };
   term.loadAddon(addon);
   try {
     await write(term, 'ERROR');
-    await new Promise((resolve) => setTimeout(resolve, 90));
+    await addon.scan().catch(() => addon.fail());
     assert.equal(addon.failed, true);
     assert.equal(term.markers.length, 0);
     setDisplaySettings({ theme: "light" });
     assert.equal(term.options.theme.background, "#ffffff", "theme updates survive a decoration failure");
-    addon.scan(); assert.equal(addon.rows.length, 0);
+    await addon.scan(); assert.equal(addon.rows.length, 0);
     await write(term, '\r\nterminal still usable');
     assert.equal(term.buffer.active.getLine(1).translateToString(true), 'terminal still usable');
   } finally { term.dispose(); setDisplaySettings(original); }
@@ -178,10 +179,10 @@ test("failed decoration API cleans marker and disables only the addon", async ()
 
 test("resize, font zoom, scroll and disposal retain buffer content and release resources", async () => {
   const term = new xterm.Terminal({ cols: 12, rows: 4, scrollback: 30, allowProposedApi: true });
-  const addon = new OutputHighlightAddon(); term.loadAddon(addon);
+  const addon = new OutputHighlightAddon({ acquireMatcher: acquireTestMatcher }); term.loadAddon(addon);
   try {
     await write(term, 'ERROR connection 42\r\nSUCCESS\r\nplain\r\nlast');
-    addon.scan();
+    await addon.scan();
     const content = () => {
       const buffer = term.buffer.active, lines = [];
       for (let y = 0; y < buffer.length;) {
@@ -193,12 +194,12 @@ test("resize, font zoom, scroll and disposal retain buffer content and release r
     const before = content();
     term.options.fontSize = 18;
     term.resize(24, 4);
-    term.scrollToTop(); addon.scan();
+    term.scrollToTop(); await addon.scan();
     assert.equal(content(), before);
     for (const row of addon.rows) for (const decoration of row.decorations) {
       assert.ok(decoration.options.x + decoration.options.width <= term.cols);
     }
-    addon.dispose(); addon.dispose(); addon.scan(); addon.request();
+    addon.dispose(); addon.dispose(); await addon.scan(); addon.request();
     assert.equal(term.markers.length, 0);
     assert.equal(addon.timer, undefined);
     assert.equal(content(), before);
@@ -237,15 +238,23 @@ test("default schemes preserve semantic classification and category switches", a
   }
   const disabled = compileScheme(defaultScheme("dark").map((entry) => ({ ...entry, enabled: false })));
   assert.deepEqual(matchText('ERROR 42 "SUCCESS" 192.168.1.1', disabled.rules, disabled.colors), []);
-  const custom = compileScheme(defaultScheme("dark").map((entry) => entry.id === "error" ? { ...entry, text: "a+b\n业务失败", mode: "contains" } : entry));
+  const custom = compileScheme(defaultScheme("dark").map((entry) => entry.id === "error" ? { ...entry, text: "a\\+b\n业务失败", mode: "regex" } : entry));
   assert.equal(matchText('a+b 业务失败', custom.rules, custom.colors).filter((span) => span.color === COLORS.error).length, 2);
 });
 
 test("scheme normalization validates entries and accepts multiline literal text", async () => {
   const { defaultScheme, normalizeScheme, MAX_SCHEME_ENTRIES } = await import("../src/client/terminal-display/scheme.js");
   const valid = { ...defaultScheme("dark")[0], text: "a+b\r\nERROR", color: "#ABCDEF" };
-  const normalized = normalizeScheme([valid, valid, { ...valid, id: "bad", color: "red" }, { ...valid, id: "long", text: "x".repeat(2049) }]);
+  const normalized = normalizeScheme([valid, valid, { ...valid, id: "bad", color: "red" }, { ...valid, id: "long", text: "x".repeat(8193) }]);
   assert.equal(normalized.length, 1);
   assert.equal(normalized[0].text, "a+b\nERROR"); assert.equal(normalized[0].color, "#abcdef");
   assert.equal(normalizeScheme(Array.from({ length: 100 }, (_, i) => ({ ...valid, id: `custom:${i}` }))).length, MAX_SCHEME_ENTRIES);
+});
+
+test("legacy whole-word schemes retain Unicode boundaries and escape literal metacharacters", async () => {
+  const { normalizeScheme, compileScheme } = await import("../src/client/terminal-display/scheme.js");
+  const entries = normalizeScheme([{ id: 'custom:old', text: '失败\na+b', mode: 'word', color: '#123456', enabled: true }]);
+  const compiled = compileScheme(entries);
+  const spans = matchText('失败 未失败 a+b axb', compiled.rules, compiled.colors);
+  assert.deepEqual(spans.map(({ start, end }) => [start, end]), [[0, 2], [7, 10]]);
 });

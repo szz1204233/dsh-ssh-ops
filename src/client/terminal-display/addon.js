@@ -1,11 +1,13 @@
-import { matchLogicalLine, readLogicalLine } from "./matcher.js";
+import { spansToRuns, readLogicalLine } from "./matcher.js";
 import { terminalTheme, resolveDisplayTheme, subscribeHostTheme } from "./theme.js";
-import { compileScheme, getScheme } from "./scheme.js";
+import { getScheme } from "./scheme.js";
+import { acquireRegexMatcher } from "./regex-runner.js";
 import { getDisplaySettings, subscribeDisplaySettings } from "./settings.js";
 import { applyTerminalTheme } from "../terminal-theme.js";
 
 const MAX_DECORATIONS = 4096;
 export class OutputHighlightAddon {
+  constructor({ acquireMatcher = acquireRegexMatcher } = {}) { this.acquireMatcher = acquireMatcher; this.generation = 0; }
   activate(term) {
     this.term = term;
     this.resources = [];
@@ -13,6 +15,7 @@ export class OutputHighlightAddon {
     this.disposed = false;
     this.failed = false;
     this.originalTheme = term.options.theme;
+    this.matcher = this.acquireMatcher();
     try {
       this.resources.push({ dispose: subscribeHostTheme(() => {
         if (getDisplaySettings().theme === "system") this.syncDisplay();
@@ -44,10 +47,11 @@ export class OutputHighlightAddon {
     }
   }
   request() {
+    this.generation++;
     if (this.disposed || this.failed || !getDisplaySettings().highlightEnabled || this.timer !== undefined) return;
     this.timer = setTimeout(() => {
       this.timer = undefined;
-      try { this.scan(); } catch { this.fail(); }
+      this.scan().catch(() => this.fail());
     }, 60);
   }
   disposeRow(row) {
@@ -58,30 +62,32 @@ export class OutputHighlightAddon {
     for (const row of this.rows ?? []) this.disposeRow(row);
     this.rows = [];
   }
-  scan() {
+  async scan() {
     if (this.disposed || this.failed) return;
+    clearTimeout(this.timer); this.timer = undefined;
     const term = this.term, buffer = term.buffer.active;
     const settings = getDisplaySettings();
     if (!settings.highlightEnabled || buffer.type !== "normal") { this.clear(); return; }
-    const theme = resolveDisplayTheme(settings.theme);
-    if (this.settings !== settings || this.theme !== theme) {
-      this.settings = settings;
-      this.theme = theme;
-      this.compiled = compileScheme(getScheme(settings, theme));
-    }
-    const { colors, rules } = this.compiled;
+    const generation = ++this.generation;
+    const entries = getScheme(settings, resolveDisplayTheme(settings.theme));
     const start = buffer.viewportY, end = Math.min(buffer.length, start + Math.min(term.rows, 200));
     const byRow = new Map();
     let y = start, backtrack = 0, count = 0;
     while (y > 0 && buffer.getLine(y)?.isWrapped && backtrack++ < 256) y--;
-    while (y < end && count < MAX_DECORATIONS) {
+    const logicals = [];
+    while (y < end) {
       const logical = readLogicalLine(buffer, y);
-      for (const run of matchLogicalLine(logical, start, end, MAX_DECORATIONS - count, colors, rules)) {
+      logicals.push(logical); y = Math.max(y + 1, logical.next);
+    }
+    const result = await this.matcher.match(entries, logicals.map((line) => line.text));
+    if (this.disposed || this.failed || generation !== this.generation || result.cancelled) return;
+    if (result.error) { this.clear(); return; }
+    for (let index = 0; index < logicals.length && count < MAX_DECORATIONS; index++) {
+      for (const run of spansToRuns(logicals[index], result.lines[index], start, end, MAX_DECORATIONS - count)) {
         if (!byRow.has(run.y)) byRow.set(run.y, []);
         byRow.get(run.y).push(run);
         count++;
       }
-      y = Math.max(y + 1, logical.next);
     }
     // Reuse unchanged row decorations: high-throughput output should not
     // churn thousands of markers and DOM nodes for already-visible history.
@@ -118,6 +124,8 @@ export class OutputHighlightAddon {
   dispose() {
     if (this.disposed) return;
     this.disposed = true;
+    this.generation++;
+    this.matcher?.release();
     clearTimeout(this.timer);
     this.timer = undefined;
     this.clear();
