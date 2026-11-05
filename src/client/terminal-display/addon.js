@@ -1,6 +1,7 @@
 import { matchLogicalLine, readLogicalLine } from "./matcher.js";
-import { terminalTheme } from "./theme.js";
-import { colorsForTheme } from "./rules.js";
+import { terminalTheme, resolveDisplayTheme, subscribeHostTheme } from "./theme.js";
+import { colorsForTheme, HIGHLIGHT_RULES } from "./rules.js";
+import { compileCustomRules } from "./custom-rules.js";
 import { getDisplaySettings, subscribeDisplaySettings } from "./settings.js";
 import { applyTerminalTheme } from "../terminal-theme.js";
 
@@ -14,21 +15,24 @@ export class OutputHighlightAddon {
     this.failed = false;
     this.originalTheme = term.options.theme;
     try {
-      // The terminal preset is independent of DSH's outer light/dark UI.
+      this.resources.push({ dispose: subscribeHostTheme(() => {
+        if (getDisplaySettings().theme === "system") this.syncDisplay();
+      }) });
       this.applyTheme();
       this.resources.push(term.onWriteParsed(() => this.request()));
       this.resources.push(term.onScroll(() => this.request()));
       this.resources.push(term.onResize(() => { this.clear(); this.request(); }));
       this.resources.push(term.buffer.onBufferChange(() => { this.clear(); this.request(); }));
-      this.resources.push({ dispose: subscribeDisplaySettings(() => {
-        try {
-          this.applyTheme();
-          clearTimeout(this.timer);
-          this.timer = undefined;
-          this.clear();
-          this.request();
-        } catch { this.fail(); }
-      }) });
+      this.resources.push({ dispose: subscribeDisplaySettings(() => this.syncDisplay()) });
+      this.request();
+    } catch { this.fail(); }
+  }
+  syncDisplay() {
+    try {
+      this.applyTheme();
+      clearTimeout(this.timer);
+      this.timer = undefined;
+      this.clear();
       this.request();
     } catch { this.fail(); }
   }
@@ -60,14 +64,22 @@ export class OutputHighlightAddon {
     const term = this.term, buffer = term.buffer.active;
     const settings = getDisplaySettings();
     if (!settings.highlightEnabled || buffer.type !== "normal") { this.clear(); return; }
-    const colors = colorsForTheme(settings.theme, settings.colors?.[settings.theme]);
+    const theme = resolveDisplayTheme(settings.theme);
+    const colors = colorsForTheme(theme, settings.colors?.[theme]);
+    // Compile only when rules change, not for each row or write event.
+    if (this.customRules !== settings.customRules || this.builtinEnabled !== settings.builtinEnabled) {
+      this.customRules = settings.customRules;
+      this.builtinEnabled = settings.builtinEnabled;
+      this.rules = [...compileCustomRules(settings.customRules), ...(settings.builtinEnabled === false ? [] : HIGHLIGHT_RULES)];
+    }
+    this.rules ??= HIGHLIGHT_RULES;
     const start = buffer.viewportY, end = Math.min(buffer.length, start + Math.min(term.rows, 200));
     const byRow = new Map();
     let y = start, backtrack = 0, count = 0;
     while (y > 0 && buffer.getLine(y)?.isWrapped && backtrack++ < 256) y--;
     while (y < end && count < MAX_DECORATIONS) {
       const logical = readLogicalLine(buffer, y);
-      for (const run of matchLogicalLine(logical, start, end, MAX_DECORATIONS - count, colors)) {
+      for (const run of matchLogicalLine(logical, start, end, MAX_DECORATIONS - count, colors, this.rules)) {
         if (!byRow.has(run.y)) byRow.set(run.y, []);
         byRow.get(run.y).push(run);
         count++;

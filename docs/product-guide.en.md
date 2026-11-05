@@ -45,9 +45,9 @@ Once installed, the right sidebar gains an **SSH tab** containing six sub-tabs:
 | **Tunnels** | Local / remote / SOCKS5 dynamic port forwarding with live status and stop | `tunnel_*` (3 tools) |
 | **Database** | Connect to databases, run SQL/commands, tabular results, CSV export | `db_*` (15 tools) |
 | **Logs** | Terminal session recording: preview, search, download, delete | `ssh_session_log_*` (3 tools) |
-| **Settings** | Terminal theme, highlight toggle and 11 custom colors stored per theme | None (local display settings) |
+| **Quick commands** | Search common commands or save custom ones; click to fill the terminal | None (operator selection) |
 
-The terminal defaults to dark with semantic highlighting enabled. SSH → Settings applies changes immediately to every connection and split pane, saves them in the current browser, and synchronizes same-origin windows. The terminal theme is independent of the DSH interface; remote styles take priority, and disabling highlighting keeps the selected theme. See [terminal display settings](./terminal-display.md).
+The brush button on the right of the server bar opens Terminal appearance. New preferences follow DSH with highlighting enabled; fixed dark/light themes are also available. Custom colors and rule editing start collapsed. Rules support literal contains/whole-word matching, case sensitivity, color categories, enable/disable, editing, ordering and deletion. Changes apply to every connection and split pane, persist in the current browser, and synchronize same-origin windows. Remote styles take priority, and disabling highlighting keeps the selected theme. See [terminal display settings](./terminal-display.md).
 
 The companion **Settings → SSH Resources** page manages server assets (a first-class entry in the settings menu) with three segments: **Server groups**, **Shared SSH credentials**, and **AI command execution policy**.
 

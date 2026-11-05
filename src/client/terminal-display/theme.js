@@ -4,6 +4,8 @@
  * SPDX-License-Identifier: Apache-2.0
  * See THIRD_PARTY_NOTICES.md and licenses/Apache-2.0.txt.
  */
+import { createTerminalThemeWatcher, getTerminalTheme } from "../terminal-theme.js";
+
 // Dige Black palette from the official WindTerm 2.7.0 distribution.
 // https://github.com/kingToolbox/WindTerm/releases/tag/2.7.0
 export const WINDTERM_DARK_THEME = Object.freeze({
@@ -25,6 +27,28 @@ export const WINDTERM_LIGHT_THEME = Object.freeze({
   brightBlue: "#2563eb", brightMagenta: "#9333b9", brightCyan: "#007c91", brightWhite: "#475569"
 });
 
+let hostTheme = getTerminalTheme().background === "#f7f8fa" ? "light" : "dark";
+const listeners = new Set();
+let stopWatching;
+export const getHostTheme = () => hostTheme;
+export function resolveDisplayTheme(theme, host = hostTheme) {
+  return theme === "system" ? host : theme === "light" ? "light" : "dark";
+}
+export function subscribeHostTheme(listener) {
+  if (listeners.size === 0) {
+    stopWatching = createTerminalThemeWatcher({ apply: (theme) => {
+      const next = theme.background === "#f7f8fa" ? "light" : "dark";
+      if (next === hostTheme) return;
+      hostTheme = next;
+      for (const notify of listeners) notify();
+    } });
+  }
+  listeners.add(listener);
+  return () => {
+    listeners.delete(listener);
+    if (listeners.size === 0) { stopWatching?.(); stopWatching = undefined; }
+  };
+}
 export function terminalTheme(theme) {
-  return theme === "light" ? WINDTERM_LIGHT_THEME : WINDTERM_DARK_THEME;
+  return resolveDisplayTheme(theme) === "light" ? WINDTERM_LIGHT_THEME : WINDTERM_DARK_THEME;
 }

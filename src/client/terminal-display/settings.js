@@ -1,12 +1,13 @@
 import { COLORS } from "./rules.js";
+import { normalizeCustomRules, MAX_CUSTOM_RULES } from "./custom-rules.js";
 
 const KEY = "dsh-ssh-ops.terminal-display.v1";
 const LEGACY_KEY = "dsh-ssh-ops.private-output-highlight.enabled";
-const DEFAULTS = Object.freeze({ highlightEnabled: true, theme: "dark" });
+const DEFAULTS = Object.freeze({ highlightEnabled: true, theme: "system" });
 function parse(value) {
   try {
     const data = JSON.parse(value);
-    if (typeof data?.highlightEnabled === "boolean" && ["dark", "light"].includes(data.theme)) {
+    if (typeof data?.highlightEnabled === "boolean" && ["system", "dark", "light"].includes(data.theme)) {
       const colors = {};
       for (const theme of ["dark", "light"]) {
         const overrides = {};
@@ -16,7 +17,9 @@ function parse(value) {
         }
         if (Object.keys(overrides).length) colors[theme] = Object.freeze(overrides);
       }
-      return Object.freeze({ highlightEnabled: data.highlightEnabled, theme: data.theme,
+      const customRules = normalizeCustomRules(data.customRules);
+      return Object.freeze({ ...(data.builtinEnabled === false ? { builtinEnabled: false } : {}),
+        ...(customRules.length ? { customRules: Object.freeze(customRules) } : {}), highlightEnabled: data.highlightEnabled, theme: data.theme,
         ...(Object.keys(colors).length ? { colors: Object.freeze(colors) } : {}) });
     }
   } catch {}
@@ -98,4 +101,32 @@ export function setDisplayColor(theme, key, color) {
 export function resetDisplayColors(theme) {
   if (!["dark", "light"].includes(theme)) return;
   settings.update((state) => ({ colors: { ...state.colors, [theme]: {} } }));
+}
+
+export function saveDisplayRule(rule) {
+  const [valid] = normalizeCustomRules([rule]);
+  if (!valid) return false;
+  let saved = false;
+  settings.update((state) => {
+    const rules = [...(state.customRules ?? [])];
+    const index = rules.findIndex((item) => item.id === valid.id);
+    if (index >= 0) rules[index] = valid;
+    else if (rules.length < MAX_CUSTOM_RULES) rules.push(valid);
+    else return {};
+    saved = true;
+    return { customRules: rules };
+  });
+  return saved;
+}
+export function deleteDisplayRule(id) {
+  settings.update((state) => ({ customRules: (state.customRules ?? []).filter((rule) => rule.id !== id) }));
+}
+export function moveDisplayRule(id, direction) {
+  settings.update((state) => {
+    const rules = [...(state.customRules ?? [])], index = rules.findIndex((rule) => rule.id === id);
+    const next = index + direction;
+    if (![1, -1].includes(direction) || index < 0 || next < 0 || next >= rules.length) return {};
+    [rules[index], rules[next]] = [rules[next], rules[index]];
+    return { customRules: rules };
+  });
 }

@@ -2,10 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import xterm from "@xterm/xterm";
 import { matchText, readLogicalLine, matchLogicalLine } from "../src/client/terminal-display/matcher.js";
-import { COLORS } from "../src/client/terminal-display/rules.js";
+import { COLORS, HIGHLIGHT_RULES } from "../src/client/terminal-display/rules.js";
 import { WINDTERM_DARK_THEME } from "../src/client/terminal-display/theme.js";
 import { OutputHighlightAddon } from "../src/client/terminal-display/addon.js";
 import { getDisplaySettings, setDisplaySettings } from "../src/client/terminal-display/settings.js";
+
+import { normalizeCustomRules, compileCustomRules, MAX_CUSTOM_RULES } from "../src/client/terminal-display/custom-rules.js";
 
 const write = (term, text) => new Promise((resolve) => term.write(text, resolve));
 function colorAt(text, target) {
@@ -203,4 +205,26 @@ test("resize, font zoom, scroll and disposal retain buffer content and release r
     await write(term, '\r\nstill usable');
     assert.match(content(), /still usable$/);
   } finally { term.dispose(); }
+});
+
+
+test("literal custom rules handle punctuation, Unicode words, case and priority", () => {
+  const custom = (text, options = {}) => compileCustomRules([{ id: "custom", text, color: "success", ...options }]);
+  assert.deepEqual(matchText("a+b axb", custom("a+b")), [{ start: 0, end: 3, color: COLORS.success }]);
+  assert.deepEqual(matchText("(a+)+$", custom("(a+)+$")), [{ start: 0, end: 6, color: COLORS.success }]);
+  assert.equal(matchText("WARN warning preWARN WARN_", custom("WARN", { match: "word" })).length, 1);
+  assert.equal(matchText("timeout TIMEOUT", custom("timeout", { caseSensitive: true })).length, 1);
+  assert.equal(matchText("timeout TIMEOUT", custom("timeout")).length, 2);
+  assert.equal(matchText("失败 失败了 未失败", custom("失败", { match: "word" })).length, 1);
+  assert.equal(matchText('"ERROR"', [...custom("ERROR"), ...HIGHLIGHT_RULES]).find((span) => span.start === 1)?.color, COLORS.success);
+  assert.deepEqual(compileCustomRules([{ id: "off", text: "ERROR", color: "error", enabled: false }]), []);
+});
+
+test("stored custom rules reject invalid fields and remain bounded", () => {
+  const valid = { id: "a", text: "ERROR", color: "error" };
+  const normalized = normalizeCustomRules([null, valid, valid, { ...valid, id: "b", text: "x".repeat(129) },
+    { ...valid, id: "c", text: "a\nb" }, { ...valid, id: "d", color: "unknown" }]);
+  assert.equal(normalized.length, 1);
+  assert.equal(normalized[0].enabled, true);
+  assert.equal(normalizeCustomRules(Array.from({ length: 100 }, (_, i) => ({ ...valid, id: String(i) }))).length, MAX_CUSTOM_RULES);
 });

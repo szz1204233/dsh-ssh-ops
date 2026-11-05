@@ -16,9 +16,9 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import { OutputHighlightAddon } from "./terminal-display/addon.js";
-import { TerminalDisplaySettings } from "./terminal-display/TerminalDisplaySettings.jsx";
+import { TerminalAppearanceButton } from "./terminal-display/TerminalAppearanceButton.jsx";
 import { getDisplaySettings, subscribeDisplaySettings } from "./terminal-display/settings.js";
-import { terminalTheme } from "./terminal-display/theme.js";
+import { terminalTheme, subscribeHostTheme, getHostTheme } from "./terminal-display/theme.js";
 import { isMacPlatform, runFind, searchResultLabel, searchShortcutLabel, searchShortcutMatches } from "./terminal-search.js";
 import { XTERM_CSS } from "./xterm-css.js";
 import { useSshUi, sshUiSetActiveConnection, sshUiSetBusy, sshUiSetConnections, sshUiSetError, sshUiAnnounceAgentConnections } from "./store.js";
@@ -994,6 +994,7 @@ export function SshPanel({ api, credentials, viewId = DEFAULT_VIEW_ID, viewSigna
   const [dialogOpen, setDialogOpen] = useState(false);
   const [tab, setTab] = useState("terminal");
   const terminalDisplay = useSyncExternalStore(subscribeDisplaySettings, getDisplaySettings);
+  useSyncExternalStore(subscribeHostTheme, getHostTheme);
   const terminalColors = terminalTheme(terminalDisplay.theme);
   const [batchTask, setBatchTask] = useState(null);
   const [pendingBatchCount, setPendingBatchCount] = useState(0);
@@ -1282,6 +1283,8 @@ export function SshPanel({ api, credentials, viewId = DEFAULT_VIEW_ID, viewSigna
         >
           {paneConnections.length === 0 ? t("＋ 连接服务器") : t("＋")}
         </button>
+        <TerminalAppearanceButton style={{ ...panelStyles.btnSmall, marginLeft: "auto", marginBottom: 4, flexShrink: 0,
+          display: "inline-flex", alignItems: "center", justifyContent: "center", color: "var(--dsh-ssh-ops-muted, #8b93a1)" }} />
       </div>
 
       {ui.error && <div style={panelStyles.error}>{ui.error}</div>}
@@ -1328,9 +1331,6 @@ export function SshPanel({ api, credentials, viewId = DEFAULT_VIEW_ID, viewSigna
           }}
           title={t("已录制的会话日志（可搜索、下载）")}
         >{t("日志")}</button>
-        <button type="button" onClick={() => setTab("display-settings")}
-          style={{ ...panelStyles.tab, ...(tab === "display-settings" ? panelStyles.tabActive : {}) }}
-        >{t("设置")}</button>
       </div>
 
       {!batchTask && pendingBatchCount > 0 && (
@@ -1396,11 +1396,6 @@ export function SshPanel({ api, credentials, viewId = DEFAULT_VIEW_ID, viewSigna
         <TabErrorBoundary key="database">
           <div style={{ ...panelStyles.tabPane, display: tab === "database" ? "flex" : "none" }}>
             <SshDatabase api={api} />
-          </div>
-        </TabErrorBoundary>
-        <TabErrorBoundary key="display-settings">
-          <div style={{ ...panelStyles.tabPane, display: tab === "display-settings" ? "flex" : "none" }}>
-            <TerminalDisplaySettings />
           </div>
         </TabErrorBoundary>
         <TabErrorBoundary key="logs">

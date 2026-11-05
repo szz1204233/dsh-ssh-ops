@@ -68,9 +68,9 @@ export function readLogicalLine(buffer, start, maxCells = 16384) {
   return { text, positions, next: y };
 }
 
-export function matchLogicalLine(logical, viewportStart, viewportEnd, limit = 4096, colors = COLORS) {
+export function matchLogicalLine(logical, viewportStart, viewportEnd, limit = 4096, colors = COLORS, rules = HIGHLIGHT_RULES) {
   const runs = [];
-  for (const span of matchText(logical.text, HIGHLIGHT_RULES, colors)) {
+  for (const span of matchText(logical.text, rules, colors)) {
     let run;
     let previous;
     for (let i = span.start; i < span.end; i++) {

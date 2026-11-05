@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import xterm from "@xterm/xterm";
-import { createDisplaySettings, getDisplaySettings, setDisplaySettings, setDisplayColor, resetDisplayColors } from "../src/client/terminal-display/settings.js";
+import { createDisplaySettings, getDisplaySettings, setDisplaySettings, setDisplayColor, resetDisplayColors, saveDisplayRule, deleteDisplayRule, moveDisplayRule } from "../src/client/terminal-display/settings.js";
 import { OutputHighlightAddon } from "../src/client/terminal-display/addon.js";
 import { COLORS, LIGHT_COLORS } from "../src/client/terminal-display/rules.js";
-import { WINDTERM_LIGHT_THEME } from "../src/client/terminal-display/theme.js";
+import { WINDTERM_LIGHT_THEME, resolveDisplayTheme } from "../src/client/terminal-display/theme.js";
 const KEY = "dsh-ssh-ops.terminal-display.v1";
 function fixture(entries = {}) {
   const values = new Map(Object.entries(entries)), listeners = new Set();
@@ -18,7 +18,7 @@ function fixture(entries = {}) {
 test("migrate the previous highlight preference and persist both settings together", () => {
   const f = fixture({ "dsh-ssh-ops.private-output-highlight.enabled": "false" });
   const store = createDisplaySettings(f);
-  assert.deepEqual(store.getSnapshot(), { highlightEnabled: false, theme: "dark" });
+  assert.deepEqual(store.getSnapshot(), { highlightEnabled: false, theme: "system" });
   store.update({ theme: "light" });
   assert.deepEqual(createDisplaySettings(f).getSnapshot(), { highlightEnabled: false, theme: "light" });
   store.update({ highlightEnabled: true });
@@ -29,17 +29,17 @@ test("stable snapshots, multiple subscribers, other-window updates and clear", (
   let updates = 0;
   const a = store.subscribe(() => updates++), b = store.subscribe(() => updates++);
   const first = store.getSnapshot();
-  store.update({ theme: "dark" }); assert.equal(store.getSnapshot(), first);
+  store.update({ theme: "system" }); assert.equal(store.getSnapshot(), first);
   store.update({ theme: "light" }); assert.equal(updates, 2);
   f.dispatch(JSON.stringify({ highlightEnabled: false, theme: "dark" }));
   assert.deepEqual(store.getSnapshot(), { highlightEnabled: false, theme: "dark" });
   assert.equal(updates, 4);
-  f.dispatch(null, null); assert.deepEqual(store.getSnapshot(), { highlightEnabled: true, theme: "dark" });
+  f.dispatch(null, null); assert.deepEqual(store.getSnapshot(), { highlightEnabled: true, theme: "system" });
   a(); b(); assert.equal(f.listeners.size, 0);
 });
 test("invalid stored settings degrade safely and blocked storage stays usable", () => {
   for (const value of ["{broken", 'null', '{"theme":"unknown","highlightEnabled":true}']) {
-    assert.deepEqual(createDisplaySettings(fixture({ [KEY]: value })).getSnapshot(), { highlightEnabled: true, theme: "dark" });
+    assert.deepEqual(createDisplaySettings(fixture({ [KEY]: value })).getSnapshot(), { highlightEnabled: true, theme: "system" });
   }
   const store = createDisplaySettings({ storage: { getItem() { throw Error('blocked'); }, setItem() { throw Error('blocked'); } }, eventTarget: {} });
   const stop = store.subscribe(() => {});
@@ -53,7 +53,7 @@ test("resubscribing observes storage deletion and keeps unsaved changes after qu
   store.subscribe(() => {})();
   f.storage.removeItem(KEY);
   const stop = store.subscribe(() => {});
-  assert.deepEqual(store.getSnapshot(), { theme: "dark", highlightEnabled: true });
+  assert.deepEqual(store.getSnapshot(), { theme: "system", highlightEnabled: true });
   stop();
 
   f.storage.setItem(KEY, JSON.stringify({ theme: "dark", highlightEnabled: true }));
@@ -153,4 +153,58 @@ test("all live terminals recolor immediately, reset per theme, and reject invali
     setDisplaySettings({ theme: "light" });
     for (const addon of addons) { addon.scan(); assert.ok(addon.rows[0].signature.includes("#0055aa")); }
   } finally { terminals.forEach((term) => term.dispose()); setDisplaySettings({ ...original, colors: original.colors ?? {} }); }
+});
+
+
+test("new installs follow the host while saved explicit themes survive migration", () => {
+  assert.equal(createDisplaySettings(fixture()).getSnapshot().theme, "system");
+  for (const theme of ["dark", "light"]) {
+    assert.equal(createDisplaySettings(fixture({ [KEY]: JSON.stringify({ theme, highlightEnabled: true }) })).getSnapshot().theme, theme);
+    assert.equal(resolveDisplayTheme(theme, theme === "light" ? "dark" : "light"), theme);
+  }
+  assert.equal(resolveDisplayTheme("system", "light"), "light");
+  assert.equal(resolveDisplayTheme("system", "dark"), "dark");
+});
+
+test("custom rule normalization, persistence and cross-window updates", () => {
+  const f = fixture(), store = createDisplaySettings(f);
+  const valid = { id: "one", text: "业务失败", color: "error", match: "word", enabled: false, caseSensitive: true };
+  store.update({ customRules: [valid, { ...valid, id: "bad", text: "" }], builtinEnabled: false });
+  assert.deepEqual(store.getSnapshot().customRules, [valid]);
+  assert.deepEqual(createDisplaySettings(f).getSnapshot(), store.getSnapshot());
+  const off = store.subscribe(() => {});
+  f.dispatch(JSON.stringify({ theme: "system", highlightEnabled: true, customRules: [{ ...valid, text: "timeout" }] }));
+  assert.equal(store.getSnapshot().customRules[0].text, "timeout");
+  assert.equal(store.getSnapshot().builtinEnabled, undefined);
+  off();
+});
+
+test("rule add/edit/reorder/toggle/delete update every live terminal and preserve remote styles", async () => {
+  const original = getDisplaySettings();
+  setDisplaySettings({ theme: "dark", highlightEnabled: true, builtinEnabled: false, customRules: [] });
+  const terminals = [0, 1].map(() => new xterm.Terminal({ cols: 60, rows: 3, allowProposedApi: true }));
+  const addons = terminals.map((term) => { const addon = new OutputHighlightAddon(); term.loadAddon(addon); return addon; });
+  const first = { id: "one", text: "业务失败", color: "error" };
+  try {
+    for (const term of terminals) await new Promise((resolve) => term.write("业务失败 ERROR \x1b[36m业务失败\x1b[0m", resolve));
+    for (const addon of addons) { addon.scan(); assert.equal(addon.rows.length, 0); }
+    assert.equal(saveDisplayRule(first), true);
+    for (const addon of addons) { addon.scan(); assert.ok(addon.rows[0].signature.includes(COLORS.error)); }
+    assert.equal(saveDisplayRule({ id: "two", text: "业务失败", color: "success" }), true);
+    moveDisplayRule("two", -1);
+    for (const addon of addons) { addon.scan(); assert.ok(addon.rows[0].signature.includes(COLORS.success)); }
+    saveDisplayRule({ ...getDisplaySettings().customRules[0], enabled: false });
+    for (const addon of addons) { addon.scan(); assert.ok(addon.rows[0].signature.includes(COLORS.error)); }
+    saveDisplayRule({ ...first, color: "info" });
+    for (const addon of addons) {
+      addon.scan(); assert.ok(addon.rows[0].signature.includes(COLORS.info));
+      assert.equal(addon.rows[0].decorations.length, 1, "the remote-colored copy remains untouched");
+    }
+    deleteDisplayRule("one");
+    for (const addon of addons) { addon.scan(); assert.equal(addon.rows.length, 0); }
+    assert.equal(saveDisplayRule({ ...first, text: "" }), false);
+  } finally {
+    terminals.forEach((term) => term.dispose());
+    setDisplaySettings({ ...original, customRules: original.customRules ?? [], builtinEnabled: original.builtinEnabled !== false });
+  }
 });
