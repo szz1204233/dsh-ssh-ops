@@ -74,4 +74,4 @@ npm test && npm run lint && npm run build
 
 ## 7. 与功能基线的区分
 
-修复位于分支 `fix/highlight-refresh`，基于 tag `codex-baseline-445bdb2`（codex 的原功能提交），共 5 个独立提交（worker 生命周期、刷新与结果采用、性能、测试、文档）。`git log --oneline codex-baseline-445bdb2..HEAD` 可核对改动边界。
+修复位于分支 `fix/highlight-refresh`，基于 tag `codex-baseline-445bdb2`（codex 的原功能提交）。提交覆盖 worker 生命周期、刷新与结果采用、性能、测试和文档，后续还包含外观设置的指针拖动、恢复确认与布局优化。`git log --oneline codex-baseline-445bdb2..HEAD` 可核对完整改动边界。
