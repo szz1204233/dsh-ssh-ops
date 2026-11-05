@@ -14,16 +14,16 @@ function AppearanceDialog({ onClose }) {
   }, []);
   return <dialog ref={ref} aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); close(); }}
     onClick={(event) => { if (event.target === event.currentTarget) close(); }}
-    style={{ padding: 0, width: "min(1040px, calc(100vw - 48px))", maxWidth: "calc(100vw - 32px)", maxHeight: "min(760px, 85vh)",
+    style={{ padding: 0, width: "min(1120px, calc(100vw - 48px))", maxWidth: "calc(100vw - 32px)", maxHeight: "min(840px, 88vh)",
       border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 10, color: "var(--dsh-ssh-ops-text, #d7dbe2)",
       background: "var(--dsh-ssh-ops-surface, #161b21)", boxShadow: "0 12px 40px rgba(0,0,0,.22)", overflow: "hidden" }}>
-    <div onClick={(event) => event.stopPropagation()} style={{ display: "flex", flexDirection: "column", maxHeight: "min(760px, 85vh)" }}>
+    <div onClick={(event) => event.stopPropagation()} style={{ display: "flex", flexDirection: "column", maxHeight: "min(840px, 88vh)", minHeight: 0 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px 10px", flexShrink: 0 }}>
         <h3 id={titleId} style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>{t("终端外观")}</h3>
         <button type="button" autoFocus onClick={close} aria-label={t("关闭外观设置")} title={t("关闭")}
           style={{ border: "none", background: "transparent", color: "var(--dsh-ssh-ops-muted, #8b93a1)", width: 24, height: 24, cursor: "pointer", fontSize: 18 }}>×</button>
       </div>
-      <div style={{ overflowY: "auto", minHeight: 0 }}><TerminalDisplaySettings /></div>
+      <div style={{ overflowY: "auto", minHeight: 0, display: "flex", flexDirection: "column" }}><TerminalDisplaySettings /></div>
     </div>
   </dialog>;
 }

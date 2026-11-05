@@ -6,59 +6,112 @@ import { terminalTheme, resolveDisplayTheme, subscribeHostTheme, getHostTheme } 
 import { getScheme, exportScheme, MAX_SCHEME_ENTRIES } from "./scheme.js";
 import { EditablePreview } from "./EditablePreview.jsx";
 import { PatternTags } from "./PatternTags.jsx";
+import { dropSlot, dropIndex, previewShifts, insertionOffset } from "./drag-order.js";
 
 const PREVIEW_TEXT = 'demo@host:~$ cat --lines=42 /var/log/app.log\n2026-10-30 12:30:15 ERROR connection refused\nSUCCESS service started 192.168.1.10\ndebug retries=42 "text"\ndrwxr-xr-x demo logs';
 const button = { padding: "5px 8px", borderRadius: 5, cursor: "pointer", fontSize: 12, color: "inherit", background: "transparent", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)" };
 const field = { boxSizing: "border-box", minWidth: 0, padding: "6px 8px", borderRadius: 5, fontSize: 12, color: "inherit",
   background: "var(--dsh-ssh-ops-input, #101418)", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)" };
-function SchemeEntry({ entry, label, onChange, onDelete, onDragStart, onDragOver, onDrop, onDragEnd, dragging, dropSide, onKeyboardMove }) {
+const DRAG_THRESHOLD = 6;
+
+/**
+ * Appearance/scheme styles. The drag visuals live here (not inline) because the
+ * moved rows are driven by direct DOM writes during the pointer move: React
+ * renders only the idle tree plus the one dragged row's placeholder state.
+ */
+const STYLES = `
+.dsh-scheme-list { position: relative; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.dsh-scheme-list[data-dragging="true"] { user-select: none; -webkit-user-select: none; }
+.dsh-scheme-row { position: relative; touch-action: pan-y; transition: transform .22s cubic-bezier(.22,.61,.36,1), background-color .16s ease, box-shadow .16s ease, border-color .16s ease; }
+.dsh-scheme-row:hover { background: color-mix(in srgb, var(--dsh-ssh-ops-text, #d7dbe2) 5%, transparent); border-radius: 8px; }
+.dsh-scheme-list[data-dragging="true"] .dsh-scheme-row:hover { background: transparent; }
+.dsh-scheme-row[data-drag-source="true"] { border: 1px dashed #2d6cdf !important; border-radius: 8px;
+  background: color-mix(in srgb, rgba(45,108,223,.10)) !important; }
+.dsh-scheme-row[data-drag-source="true"] > * { visibility: hidden; }
+.dsh-scheme-row[data-drop-target="true"] { box-shadow: inset 0 0 0 1px color-mix(in srgb, rgba(45,108,223,.55)); border-radius: 8px; }
+.dsh-drag-handle { display: grid; place-items: center; width: 28px; height: 34px; padding: 0; border: 0; border-radius: 6px;
+  background: transparent; color: var(--dsh-ssh-ops-muted, #8b93a1); cursor: grab; touch-action: none; }
+.dsh-drag-handle:hover, .dsh-drag-handle:focus-visible { background: color-mix(in srgb, var(--dsh-ssh-ops-text, #d7dbe2) 10%, transparent); color: var(--dsh-ssh-ops-text, #d7dbe2); }
+.dsh-drag-handle:active, .dsh-scheme-list[data-dragging="true"] .dsh-drag-handle { cursor: grabbing; }
+.dsh-scheme-ghost { position: fixed; z-index: 2147483000; pointer-events: none; opacity: .97; overflow: hidden;
+  background: var(--dsh-ssh-ops-surface, #161b21); color: var(--dsh-ssh-ops-text, #d7dbe2);
+  border: 1px solid #2d6cdf; border-radius: 8px;
+  box-shadow: 0 18px 40px rgba(0,0,0,.38), 0 2px 8px rgba(0,0,0,.24);
+  transform: rotate(-1.5deg) scale(1.012); animation: dsh-ghost-in .16s cubic-bezier(.22,.61,.36,1); will-change: transform, left, top; }
+@keyframes dsh-ghost-in { from { transform: rotate(0) scale(1); box-shadow: 0 2px 8px rgba(0,0,0,.2); } }
+.dsh-drop-indicator { position: absolute; top: 0; left: 0; right: 0; height: 2px; margin-top: -1px; border-radius: 2px;
+  background: #2d6cdf; box-shadow: 0 0 0 1px color-mix(in srgb, rgba(45,108,223,.30));
+  pointer-events: none; display: none; will-change: transform; }
+.dsh-scheme-list[data-dragging="true"] { cursor: grabbing; }
+@media (prefers-reduced-motion: reduce) {
+  .dsh-scheme-row { transition: none; }
+  .dsh-scheme-ghost { animation: none; transform: none; }
+}
+@media (max-width: 720px) {
+  .dsh-scheme-row { grid-template-columns: 28px minmax(0, 1fr) 34px 26px !important;
+    grid-template-areas: "grip name color del" "tags tags tags tags" "hex hex hex hex" !important; }
+}
+`;
+
+function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePointerDown, onKeyboardMove, rowRef }) {
   const [hex, setHex] = React.useState(entry.color);
   const toggleId = React.useId();
   React.useEffect(() => setHex(entry.color), [entry.color]);
-  return <div className="dsh-scheme-row" data-scheme-id={entry.id} onDragOver={onDragOver} onDrop={onDrop}
-    style={{ display: "grid", gridTemplateColumns: "20px 144px minmax(0, 1fr) 32px 82px 22px", gap: 8, alignItems: "start", padding: "10px 0",
-      borderBottom: "1px solid var(--dsh-ssh-ops-border, #3a414b)", opacity: dragging ? 0.45 : 1,
-      boxShadow: dropSide === "before" ? "0 -2px 0 var(--dsw-alias-button-primary-fill, #2d6cdf)" : dropSide === "after" ? "0 2px 0 var(--dsw-alias-button-primary-fill, #2d6cdf)" : undefined }}>
-    <button type="button" draggable onDragStart={onDragStart} onDragEnd={onDragEnd}
-      aria-label={t(`拖动排序 ${label}`)} title={t("拖动排序；也可使用 Alt + 方向键")}
+  return <div ref={rowRef} className="dsh-scheme-row" data-scheme-id={entry.id} data-drag-source={dragging ? "true" : undefined}
+    aria-grabbed={dragging ? "true" : undefined}
+    style={{ display: "grid", width: "100%",
+    gridTemplateColumns: "28px minmax(140px, 190px) 34px 84px 26px minmax(0, 1fr)",
+    gridTemplateAreas: '"grip name color hex del del" "tags tags tags tags tags tags"', columnGap: 8, rowGap: 6, alignItems: "start",
+    padding: "10px 6px 10px 2px", borderBottom: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
+    <button type="button" data-drag-handle className="dsh-drag-handle" aria-label={t(`拖动排序 ${label}`)} title={t("拖动排序；也可使用 Alt + 方向键")}
+      onPointerDown={onHandlePointerDown}
       onKeyDown={(event) => { if (event.altKey && ["ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); onKeyboardMove(event.key === "ArrowUp" ? -1 : 1); } }}
-      style={{ border: 0, background: "transparent", color: "var(--dsh-ssh-ops-muted, #8b93a1)", cursor: "grab", padding: "7px 0" }}>
+      style={{ gridArea: "grip" }}>
       <svg width="14" height="16" viewBox="0 0 14 16" fill="currentColor" aria-hidden="true"><circle cx="4" cy="4" r="1"/><circle cx="10" cy="4" r="1"/><circle cx="4" cy="8" r="1"/><circle cx="10" cy="8" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="10" cy="12" r="1"/></svg>
     </button>
-    <div className="dsh-scheme-name" style={{ minWidth: 0, paddingTop: 5 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 5, fontSize: 12 }}>
+    <div style={{ gridArea: "name", display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
         <input id={toggleId} type="checkbox" checked={entry.enabled} aria-label={t(`启用 ${label}`)} onChange={(event) => onChange({ enabled: event.target.checked })} />
-        {onDelete ? <input aria-label={t("配色项名称")} value={entry.name} placeholder={t("自定义配色项")} maxLength={80} onChange={(event) => onChange({ name: event.target.value })} style={{ ...field, width: "100%", padding: "3px 4px" }} /> : <label htmlFor={toggleId}>{label}</label>}
+        {onDelete
+          ? <input aria-label={t("配色项名称")} value={entry.name} placeholder={t("自定义配色项")} maxLength={80} onChange={(event) => onChange({ name: event.target.value })} style={{ ...field, width: "100%", padding: "3px 4px" }} />
+          : <label htmlFor={toggleId} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</label>}
       </div>
       <button type="button" disabled={!entry.enabled} aria-label={t(`${label} 区分大小写`)} aria-pressed={entry.caseSensitive} title={t("区分大小写")}
         onClick={() => onChange({ caseSensitive: !entry.caseSensitive })}
-        style={{ ...button, margin: "5px 0 0 22px", padding: "0 5px", lineHeight: "18px", opacity: entry.caseSensitive ? 1 : 0.55 }}>Aa</button>
+        style={{ ...button, alignSelf: "flex-start", padding: "0 5px", lineHeight: "18px", opacity: entry.caseSensitive ? 1 : 0.55 }}>Aa</button>
     </div>
-    <div className="dsh-scheme-patterns" style={{ minWidth: 0 }}><PatternTags label={label} text={entry.text} disabled={!entry.enabled} onChange={(text) => onChange({ text, mode: "regex" })} /></div>
     <input type="color" aria-label={label} value={entry.color} disabled={!entry.enabled} onChange={(event) => onChange({ color: event.target.value })}
-      style={{ width: 32, height: 30, padding: 2, background: "transparent", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 4 }} />
+      style={{ gridArea: "color", width: 34, height: 30, padding: 2, background: "transparent", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 4 }} />
     <input aria-label={label + " HEX"} value={hex} disabled={!entry.enabled} maxLength={7} spellCheck={false}
       onChange={(event) => { setHex(event.target.value); if (/^#[0-9a-f]{6}$/i.test(event.target.value)) onChange({ color: event.target.value }); }} onBlur={() => setHex(entry.color)}
-      style={{ ...field, width: 82, padding: "6px", fontFamily: "monospace" }} />
-    {onDelete ? <button type="button" style={{ ...button, border: 0, padding: "5px 2px" }} aria-label={t(`删除配色项 ${label}`)} onClick={onDelete}>×</button> : <span />}
+      style={{ ...field, gridArea: "hex", width: 84, padding: "6px", fontFamily: "monospace" }} />
+    {onDelete
+      ? <button type="button" style={{ ...button, gridArea: "del", justifySelf: "end", border: 0, padding: "5px 2px", alignSelf: "start" }} aria-label={t(`删除配色项 ${label}`)} title={t(`删除配色项 ${label}`)} onClick={onDelete}>×</button>
+      : <span style={{ gridArea: "del" }} />}
+    <div style={{ gridArea: "tags", display: "flex", gap: 6, alignItems: "flex-start", minWidth: 0 }}>
+      <div style={{ flex: 1, minWidth: 0 }}><PatternTags label={label} text={entry.text} disabled={!entry.enabled} onChange={(text) => onChange({ text, mode: "regex" })} /></div>
+    </div>
   </div>;
 }
+
 export function TerminalDisplaySettings() {
   useLanguage();
   const settings = React.useSyncExternalStore(subscribeDisplaySettings, getDisplaySettings);
   React.useSyncExternalStore(subscribeHostTheme, getHostTheme);
   const [preview, setPreview] = React.useState(PREVIEW_TEXT);
   const [backupStatus, setBackupStatus] = React.useState(false);
+  const [dragId, setDragId] = React.useState(null);
   const radioName = React.useId(), resolved = resolveDisplayTheme(settings.theme);
   const entries = React.useMemo(() => getScheme(settings, resolved), [settings, resolved]);
-  const dragged = React.useRef(null);
-  const [dragId, setDragId] = React.useState(null);
-  const [drop, setDrop] = React.useState(null);
-  const finishDrag = () => { dragged.current = null; setDragId(null); setDrop(null); };
-  React.useEffect(() => { dragged.current = null; setDragId(null); setDrop(null); }, [resolved]);
+  const listRef = React.useRef(null);
+  const rows = React.useRef(new Map());
+  const indicator = React.useRef(null);
+  const drag = React.useRef(null);
+  const suppressClick = React.useRef(0);
   const labels = { error: t("错误与否定"), success: t("成功与肯定"), warning: t("警示状态"), info: t("信息关键词"),
     heading: t("地址、时间与符号"), number: t("数字"), string: t("字符串与路径"), option: t("命令选项"), command: t("命令名称"), debug: t("文件类型"), prompt: t("提示符") };
   const change = (id, patch) => updateScheme(resolved, (scheme) => scheme.map((entry) => entry.id === id ? { ...entry, ...patch } : entry));
+
   const move = (id, target, side = "before") => updateScheme(resolved, (scheme) => {
     const moved = scheme.find((entry) => entry.id === id);
     if (!moved || id === target) return scheme;
@@ -74,49 +127,213 @@ export function TerminalDisplaySettings() {
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     setBackupStatus(true);
   };
-  return <section aria-label={t("终端显示")} style={{ padding: "4px 20px 20px", color: "var(--dsh-ssh-ops-text, #d7dbe2)" }}>
-    <style>{`@media (max-width: 720px) { .dsh-scheme-row { grid-template-columns: 20px minmax(0, 1fr) 32px 82px 22px !important; } .dsh-scheme-patterns { grid-column: 2 / -1; grid-row: 2; } }`}</style>
-    <p style={{ margin: "0 0 12px", fontSize: 12, lineHeight: 1.6, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("适用于所有 SSH 终端，修改后自动保存。")}</p>
-    <fieldset style={{ border: 0, padding: 0, margin: "0 0 12px" }}>
-      <legend style={{ fontSize: 13, marginBottom: 10 }}>{t("终端主题")}</legend>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-        {[["system", t("跟随 DSH")], ["dark", t("深色")], ["light", t("浅色")]].map(([value, label]) => <label key={value} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12 }}>
-          <input type="radio" name={radioName} value={value} checked={settings.theme === value} onChange={() => { setDisplaySettings({ theme: value }); setBackupStatus(false); }} />{label}
-        </label>)}
-      </div>
+
+  // ---- pointer drag reorder -------------------------------------------------
+  const rowElements = () => Array.from(rows.current.values()).filter((element) => element?.isConnected);
+  const measureRows = () => {
+    const list = listRef.current;
+    const listRect = list.getBoundingClientRect();
+    return entries.map((entry) => {
+      const element = rows.current.get(entry.id);
+      const rect = element.getBoundingClientRect();
+      return { id: entry.id, top: rect.top - listRect.top + list.scrollTop, height: rect.height };
+    });
+  };
+  const clearVisuals = (state, keepGhost = false) => {
+    for (const element of rowElements()) { element.style.transform = ""; element.style.zIndex = ""; element.removeAttribute("data-drop-target"); }
+    if (indicator.current) { indicator.current.style.display = "none"; indicator.current.style.transform = ""; }
+    if (!keepGhost) state?.ghost?.remove();
+    if (listRef.current) listRef.current.removeAttribute("data-dragging");
+  };
+  const applyShifts = (state, shifts) => {
+    for (const row of state.rows) {
+      const element = rows.current.get(row.id);
+      if (!element) continue;
+      const shift = shifts.get(row.id);
+      element.style.transform = shift ? `translateY(${shift}px)` : "";
+    }
+    for (const element of rowElements()) element.removeAttribute("data-drop-target");
+    const target = state.slot ? rows.current.get(state.slot.id) : undefined;
+    if (target) target.setAttribute("data-drop-target", "true");
+  };
+  const updateSlot = () => {
+    const state = drag.current;
+    if (!state?.active) return;
+    const list = listRef.current;
+    const listRect = list.getBoundingClientRect();
+    const slot = dropSlot(state.rows, state.pointerY - listRect.top + list.scrollTop);
+    if (!slot || (state.slot && slot.id === state.slot.id && slot.side === state.slot.side)) return;
+    state.slot = slot;
+    const shifts = previewShifts(state.rows, state.id, slot);
+    applyShifts(state, shifts);
+    const offset = insertionOffset(state.rows, state.id, slot);
+    if (indicator.current) {
+      if (offset == null) indicator.current.style.display = "none";
+      else { indicator.current.style.display = "block"; indicator.current.style.transform = `translateY(${offset - list.scrollTop}px)`; }
+    }
+  };
+  const autoScroll = (state) => {
+    const list = listRef.current;
+    const rect = list.getBoundingClientRect();
+    const edge = 30;
+    const delta = state.pointerY < rect.top + edge ? -14 : state.pointerY > rect.bottom - edge ? 14 : 0;
+    if (!delta) return;
+    const before = list.scrollTop;
+    list.scrollTop = Math.max(0, Math.min(list.scrollHeight - list.clientHeight, before + delta));
+    if (list.scrollTop !== before) updateSlot();
+  };
+  const dragFrame = () => {
+    const state = drag.current;
+    if (!state?.active) { state && (state.frame = undefined); return; }
+    autoScroll(state);
+    if (state.ghost) {
+      const left = state.pointerX - state.offsetX, top = state.pointerY - state.offsetY;
+      state.ghost.style.left = `${left}px`; state.ghost.style.top = `${top}px`;
+    }
+    state.frame = window.requestAnimationFrame(dragFrame);
+  };
+  const startGhost = (state, element) => {
+    const dialog = element.closest("dialog") ?? document.body;
+    const rect = element.getBoundingClientRect();
+    const ghost = element.cloneNode(true);
+    ghost.removeAttribute("data-scheme-id"); ghost.removeAttribute("data-drag-source"); ghost.setAttribute("aria-hidden", "true");
+    ghost.classList.add("dsh-scheme-ghost");
+    for (const node of ghost.querySelectorAll("[id]")) node.removeAttribute("id");
+    for (const node of ghost.querySelectorAll("input,button,select,textarea")) node.setAttribute("tabindex", "-1");
+    ghost.style.left = `${rect.left}px`; ghost.style.top = `${rect.top}px`;
+    ghost.style.width = `${rect.width}px`; ghost.style.minHeight = `${rect.height}px`;
+    dialog.appendChild(ghost);
+    state.ghost = ghost;
+  };
+  const detachDrag = () => {
+    window.removeEventListener("pointermove", onPointerMove, { passive: false });
+    window.removeEventListener("pointerup", onPointerUp);
+    window.removeEventListener("pointercancel", onPointerCancel);
+    window.removeEventListener("keydown", onDragKey, true);
+    if (drag.current?.frame) window.cancelAnimationFrame(drag.current.frame);
+  };
+  const onHandlePointerDown = (event, id) => {
+    if (event.button !== 0 || !event.isPrimary) return;
+    const element = rows.current.get(id);
+    const list = listRef.current;
+    if (!element || !list) return;
+    const rowRect = element.getBoundingClientRect();
+    drag.current = { id, pointerId: event.pointerId, startX: event.clientX, startY: event.clientY,
+      pointerX: event.clientX, pointerY: event.clientY, offsetX: event.clientX - rowRect.left, offsetY: event.clientY - rowRect.top,
+      active: false, ghost: undefined, rows: measureRows(), slot: undefined, frame: undefined };
+    window.addEventListener("pointermove", onPointerMove, { passive: false });
+    window.addEventListener("pointerup", onPointerUp);
+    window.addEventListener("pointercancel", onPointerCancel);
+    window.addEventListener("keydown", onDragKey, true);
+  };
+  const onPointerMove = (event) => {
+    const state = drag.current;
+    if (!state || event.pointerId !== state.pointerId) return;
+    state.pointerX = event.clientX; state.pointerY = event.clientY;
+    if (!state.active) {
+      if (Math.hypot(event.clientX - state.startX, event.clientY - state.startY) < DRAG_THRESHOLD) return;
+      state.active = true;
+      state.rows = measureRows();
+      setDragId(state.id);
+      const element = rows.current.get(state.id);
+      if (element) { element.setAttribute("data-drag-source", "true"); startGhost(state, element); }
+      if (listRef.current) listRef.current.setAttribute("data-dragging", "true");
+      state.frame = window.requestAnimationFrame(dragFrame);
+    }
+    event.preventDefault();
+    updateSlot();
+  };
+  const finish = async (commitMove) => {
+    const state = drag.current;
+    if (!state) return;
+    detachDrag();
+    drag.current = null;
+    const wasActive = state.active;
+    if (wasActive) suppressClick.current = Date.now() + 400;
+    const ghost = state.ghost;
+    clearVisuals(state, true);
+    setDragId(null);
+    if (!wasActive) { ghost?.remove(); return; }
+    if (commitMove && state.slot) {
+      const sourceIndex = state.rows.findIndex((row) => row.id === state.id);
+      if (dropIndex(state.rows, state.id, state.slot) !== sourceIndex && state.slot.id !== state.id) {
+        move(state.id, state.slot.id, state.slot.side);
+      }
+    }
+    // Let React commit the new order, then glide the ghost into the real slot.
+    await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    const destination = rows.current.get(state.id);
+    if (!ghost || !ghost.isConnected || !destination) { ghost?.remove(); return; }
+    const from = ghost.getBoundingClientRect();
+    const to = destination.getBoundingClientRect();
+    const animation = ghost.animate([
+      { transform: `translate(${0}px, ${0}px) rotate(-1.5deg) scale(1.012)`, opacity: 0.92 },
+      { transform: `translate(${to.left - from.left}px, ${to.top - from.top}px) rotate(0) scale(1)`, opacity: 1 }
+    ], { duration: 220, easing: "cubic-bezier(.22,.61,.36,1)" });
+    try { await animation.finished; } catch { /* interrupted */ }
+    ghost.remove();
+    destination.focus?.();
+  };
+  const onPointerUp = (event) => {
+    const state = drag.current;
+    if (!state || event.pointerId !== state.pointerId) return;
+    void finish(true);
+  };
+  const onPointerCancel = () => { void finish(false); };
+  const onDragKey = (event) => { if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); void finish(false); } };
+  const onKeyboardMove = (id, direction) => {
+    const index = entries.findIndex((entry) => entry.id === id);
+    const target = entries[index + direction];
+    if (!target) return;
+    move(id, target.id, direction > 0 ? "after" : "before");
+    window.setTimeout(() => rows.current.get(id)?.querySelector("[data-drag-handle]")?.focus(), 0);
+  };
+  const onListClickCapture = (event) => {
+    if (Date.now() < suppressClick.current) { event.preventDefault(); event.stopPropagation(); }
+  };
+
+  return <section aria-label={t("终端显示")} style={{ padding: "4px 20px 18px", color: "var(--dsh-ssh-ops-text, #d7dbe2)", display: "flex", flexDirection: "column", minHeight: 0 }}>
+    <style>{STYLES}</style>
+    <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.6, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("适用于所有 SSH 终端，修改后自动保存。")}</p>
+    <fieldset style={{ border: 0, padding: 0, margin: "0 0 8px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 18px" }}>
+      <legend style={{ float: "left", fontSize: 12, color: "var(--dsh-ssh-ops-muted, #8b93a1)", marginRight: 2 }}>{t("终端主题")}</legend>
+      {[["system", t("跟随 DSH")], ["dark", t("深色")], ["light", t("浅色")]].map(([value, label]) => <label key={value} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12 }}>
+        <input type="radio" name={radioName} value={value} checked={settings.theme === value} onChange={() => { setDisplaySettings({ theme: value }); setBackupStatus(false); }} />{label}
+      </label>)}
+      <span aria-hidden="true" style={{ width: 1, height: 15, background: "var(--dsh-ssh-ops-border, #3a414b)" }} />
+      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
+        <input type="checkbox" checked={settings.highlightEnabled} onChange={(event) => setDisplaySettings({ highlightEnabled: event.target.checked })} />{t("启用语义高亮")}
+      </label>
     </fieldset>
-    <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
-      <input type="checkbox" checked={settings.highlightEnabled} onChange={(event) => setDisplaySettings({ highlightEnabled: event.target.checked })} />{t("启用语义高亮")}
-    </label>
     {settings.highlightEnabled && <>
-      <h4 style={{ fontSize: 13, margin: "20px 0 10px" }}>{t("配色方案")}</h4>
-      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "16px 0 8px" }}>
+        <h4 style={{ fontSize: 13, margin: 0, marginRight: "auto" }}>{t("配色方案")}</h4>
         <button type="button" style={button} onClick={() => resetScheme(resolved)}>{t("恢复当前主题默认配色方案")}</button>
         <button type="button" style={button} onClick={backup}>{t("备份当前配色方案")}</button>
       </div>
-      {backupStatus && <div role="status" style={{ fontSize: 11, marginTop: 8 }}>{t("已导出当前主题配色方案（JSON）。")}</div>}
-      <p style={{ fontSize: 11, lineHeight: 1.6, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{resolved === "light" ? t("正在编辑浅色主题。") : t("正在编辑深色主题。")}{" "}{t("每个标签是一个关键词或正则，无需 / 分隔符。Enter 添加，点击标签编辑，拖动左侧手柄调整优先级。")}</p>
-      {entries.map((entry, index) => {
-        const custom = !Object.hasOwn(labels, entry.id), label = custom ? (entry.name || t("自定义配色项")) : labels[entry.id];
-        return <SchemeEntry key={`${resolved}:${entry.id}`} entry={entry} label={label} dragging={dragId === entry.id} dropSide={drop?.id === entry.id ? drop.side : undefined}
-          onChange={(patch) => change(entry.id, patch)}
-          onDragStart={(event) => { dragged.current = entry.id; setDragId(entry.id); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", entry.id); }}
-          onDragEnd={finishDrag}
-          onDragOver={(event) => {
-            if (!dragged.current || dragged.current === entry.id) return;
-            event.preventDefault(); event.dataTransfer.dropEffect = "move";
-            const rect = event.currentTarget.getBoundingClientRect();
-            setDrop({ id: entry.id, side: event.clientY < rect.top + rect.height / 2 ? "before" : "after" });
-          }}
-          onDrop={(event) => { if (dragged.current) { event.preventDefault(); move(dragged.current, entry.id, drop?.id === entry.id ? drop.side : "before"); finishDrag(); } }}
-          onKeyboardMove={(direction) => { const target = entries[index + direction]; if (target) move(entry.id, target.id, direction > 0 ? "after" : "before"); }}
-          onDelete={custom ? () => updateScheme(resolved, (scheme) => scheme.filter((item) => item.id !== entry.id)) : undefined} />;
-      })}
-      <button type="button" disabled={entries.length >= MAX_SCHEME_ENTRIES} style={{ ...button, marginTop: 12 }} onClick={() => updateScheme(resolved, (scheme) => [...scheme, {
-        id: `custom:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`, name: "", enabled: true,
-        color: entries.find((entry) => entry.id === "error")?.color ?? "#f44747", mode: "regex", caseSensitive: false, text: ""
-      }])}>{t("添加配色项")}</button>
-      <div style={{ fontSize: 12, margin: "20px 0 8px" }}>{t("配色预览")}</div>
+      {backupStatus && <div role="status" style={{ fontSize: 11, marginBottom: 6 }}>{t("已导出当前主题配色方案（JSON）。")}</div>}
+      <p style={{ fontSize: 11, lineHeight: 1.6, margin: "0 0 8px", color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{resolved === "light" ? t("正在编辑浅色主题。") : t("正在编辑深色主题。")}{" "}{t("拖动左侧手柄可调整优先级；拖动时显示浮动预览与虚线占位，也可使用 Alt + 方向键。")}</p>
+      <div ref={listRef} className="dsh-scheme-list" onClickCapture={onListClickCapture}
+        style={{ overflowY: "auto", minHeight: 140, maxHeight: "min(40vh, 380px)", paddingRight: 6, borderTop: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
+        {entries.map((entry) => {
+          const custom = !Object.hasOwn(labels, entry.id), label = custom ? (entry.name || t("自定义配色项")) : labels[entry.id];
+          return <SchemeEntry key={`${resolved}:${entry.id}`} entry={entry} label={label} dragging={dragId === entry.id}
+            rowRef={(element) => { if (element) rows.current.set(entry.id, element); else rows.current.delete(entry.id); }}
+            onChange={(patch) => change(entry.id, patch)}
+            onHandlePointerDown={(event) => onHandlePointerDown(event, entry.id)}
+            onKeyboardMove={(direction) => onKeyboardMove(entry.id, direction)}
+            onDelete={custom ? () => updateScheme(resolved, (scheme) => scheme.filter((item) => item.id !== entry.id)) : undefined} />;
+        })}
+        <div ref={indicator} className="dsh-drop-indicator" aria-hidden="true" />
+      </div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10 }}>
+        <button type="button" disabled={entries.length >= MAX_SCHEME_ENTRIES} style={{ ...button, marginTop: 0 }} onClick={() => updateScheme(resolved, (scheme) => [...scheme, {
+          id: `custom:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`, name: "", enabled: true,
+          color: entries.find((entry) => entry.id === "error")?.color ?? "#f44747", mode: "regex", caseSensitive: false, text: ""
+        }])}>{t("添加配色项")}</button>
+        <span style={{ fontSize: 11, lineHeight: 1.5, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("每个标签是一个关键词或正则，无需 / 分隔符。Enter 添加，点击标签编辑，拖动左侧手柄调整优先级。")}</span>
+      </div>
+      <div style={{ fontSize: 12, margin: "16px 0 8px" }}>{t("配色预览")}</div>
       <EditablePreview text={preview} onChange={setPreview} theme={terminalTheme(settings.theme)} entries={entries} />
     </>}
   </section>;
