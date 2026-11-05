@@ -360,7 +360,6 @@ export const en = {
   "日志：查看末尾 100 行": "Logs: last 100 lines",
   "日志：持续跟踪": "Logs: follow",
   "日志：筛选错误": "Logs: filter errors",
-  "删除": "Delete",
   "删除 ${empty.length} 条 0 字节的会话日志？": "Delete ${empty.length} empty (0-byte) session logs?",
   "删除 ${item.name}": "Delete ${item.name}",
   "删除 ${log.sessionId}": "Delete ${log.sessionId}",
@@ -781,6 +780,10 @@ export const en = {
   "恢复默认配色方案确认": "Confirm restoring the default color scheme",
   "将恢复当前主题的默认配色方案，当前修改会被覆盖。建议先备份。": "Restore this theme's default color scheme? Current edits will be overwritten — back up first if you want to keep them.",
   "先备份": "Back up first",
+  "先填写新建的配色项": "Finish the new color entry first",
+  "删除": "Delete",
+  "区分大小写：已开启": "Case sensitive: on",
+  "区分大小写：已关闭": "Case sensitive: off",
   "恢复默认": "Restore defaults",
   "每个标签是一个关键词或正则，无需 / 分隔符。Enter 添加，点击标签编辑，拖动左侧手柄调整优先级。": "Each tag is a keyword or regex without / delimiters. Press Enter to add, click a tag to edit, and drag its handle to change priority.",
 };

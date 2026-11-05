@@ -46,7 +46,7 @@ export function PatternTags({ label, text, disabled, onChange }) {
           onClick={() => { onChange(patterns.filter((_, i) => i !== index).join("\n")); setDraft(""); setEditing(null); setError(""); input.current?.focus(); }}
           style={{ border: 0, background: "transparent", color: "var(--dsh-ssh-ops-muted, #8b93a1)", padding: "0 4px", fontSize: 12, cursor: "pointer", lineHeight: "20px" }}>×</button>
       </span>)}
-      <input ref={input} aria-label={t(`${label} 标签输入`)} disabled={disabled} value={draft} maxLength={MAX_PATTERN_LENGTH} spellCheck={false}
+      <input ref={input} data-pattern-input="" aria-label={t(`${label} 标签输入`)} disabled={disabled} value={draft} maxLength={MAX_PATTERN_LENGTH} spellCheck={false}
         placeholder={editing === null ? t("关键词或正则，Enter 添加") : t("编辑正则，Enter 保存")} onChange={(event) => { setDraft(event.target.value); setError(""); }}
         onBlur={commit} onKeyDown={(event) => {
           if (event.nativeEvent.isComposing) return;

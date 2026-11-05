@@ -43,6 +43,20 @@ const STYLES = `
   background: #2d6cdf; box-shadow: 0 0 0 1px color-mix(in srgb, rgba(45,108,223,.30));
   pointer-events: none; display: none; will-change: transform; }
 .dsh-scheme-list[data-dragging="true"] { cursor: grabbing; }
+.dsh-scheme-list[data-settling="true"] .dsh-scheme-row { transition: none !important; }
+.dsh-delete-entry { display: inline-flex; align-items: center; justify-content: center; height: 30px; padding: 0 8px;
+  border: 1px solid rgba(229,72,77,.5); border-radius: 5px; background: transparent; color: #e5484d; font-size: 11px; cursor: pointer; }
+.dsh-delete-entry:hover, .dsh-delete-entry:focus-visible { background: rgba(229,72,77,.12); border-color: #e5484d; }
+.dsh-case-toggle { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 8px; border-radius: 5px;
+  border: 1px solid var(--dsh-ssh-ops-border, #3a414b); background: transparent; color: var(--dsh-ssh-ops-muted, #8b93a1);
+  font-size: 11px; cursor: pointer; white-space: nowrap; }
+.dsh-case-toggle[aria-pressed="true"] { background: #2d6cdf; border-color: #2d6cdf; color: #fff; }
+.dsh-case-toggle:disabled { cursor: not-allowed; opacity: .5; }
+.dsh-reset-popover { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: min(440px, 100%);
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; font-size: 12px;
+  background: var(--dsh-ssh-ops-surface, #161b21); border: 1px solid #2d6cdf; border-radius: 8px;
+  box-shadow: 0 10px 30px rgba(0,0,0,.28); }
+@media (max-width: 720px) { .dsh-reset-popover { left: 0; right: 0; width: auto; } }
 @media (prefers-reduced-motion: reduce) {
   .dsh-scheme-row { transition: none; }
   .dsh-scheme-ghost { animation: none; transform: none; }
@@ -63,7 +77,7 @@ function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePoint
   return <div ref={rowRef} className="dsh-scheme-row" data-scheme-id={entry.id} data-drag-source={dragging ? "true" : undefined}
     aria-grabbed={dragging ? "true" : undefined}
     style={{ display: "grid", width: "100%", boxSizing: "border-box",
-      gridTemplateColumns: "28px minmax(120px, 220px) 34px 84px auto 26px minmax(0, 1fr)",
+      gridTemplateColumns: "28px minmax(120px, 220px) 34px 84px auto auto minmax(0, 1fr)",
       gridTemplateAreas: '"grip name color hex case del rest" "tags tags tags tags tags tags tags"',
       columnGap: 8, rowGap: 6, alignItems: "center",
       padding: "10px 6px 10px 2px", borderBottom: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
@@ -84,13 +98,13 @@ function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePoint
     <input aria-label={label + " HEX"} value={hex} disabled={!entry.enabled} maxLength={7} spellCheck={false}
       onChange={(event) => { setHex(event.target.value); if (/^#[0-9a-f]{6}$/i.test(event.target.value)) onChange({ color: event.target.value }); }} onBlur={() => setHex(entry.color)}
       style={{ ...field, ...control, gridArea: "hex", width: 84, padding: "0 6px", fontFamily: "monospace" }} />
-    <button type="button" disabled={!entry.enabled} aria-label={t(`${label} 区分大小写`)} aria-pressed={entry.caseSensitive} title={t("区分大小写")}
-      onClick={() => onChange({ caseSensitive: !entry.caseSensitive })}
-      style={{ ...button, ...control, gridArea: "case", display: "inline-flex", alignItems: "center", gap: 4, padding: "0 8px", whiteSpace: "nowrap", fontSize: 11, lineHeight: 1, opacity: entry.caseSensitive ? 1 : 0.55 }}>
+    <button type="button" className="dsh-case-toggle" disabled={!entry.enabled} aria-label={t(`${label} 区分大小写`)} aria-pressed={entry.caseSensitive}
+      title={entry.caseSensitive ? t("区分大小写：已开启") : t("区分大小写：已关闭")} onClick={() => onChange({ caseSensitive: !entry.caseSensitive })}
+      style={{ gridArea: "case" }}>
       <span aria-hidden="true" style={{ fontFamily: "monospace", fontWeight: 600 }}>Aa</span>{t("区分大小写")}
     </button>
     {onDelete
-      ? <button type="button" style={{ ...button, gridArea: "del", justifySelf: "end", border: 0, padding: "0 2px", height: 30 }} aria-label={t(`删除配色项 ${label}`)} title={t(`删除配色项 ${label}`)} onClick={onDelete}>×</button>
+      ? <button type="button" className="dsh-delete-entry" style={{ gridArea: "del", justifySelf: "end" }} aria-label={t(`删除配色项 ${label}`)} title={t(`删除配色项 ${label}`)} onClick={onDelete}>{t("删除")}</button>
       : <span style={{ gridArea: "del" }} />}
     <div style={{ gridArea: "tags", display: "flex", gap: 6, alignItems: "flex-start", minWidth: 0 }}>
       <div style={{ flex: 1, minWidth: 0 }}><PatternTags label={label} text={entry.text} disabled={!entry.enabled} onChange={(text) => onChange({ text, mode: "regex" })} /></div>
@@ -136,6 +150,42 @@ export function TerminalDisplaySettings() {
     document.body.appendChild(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
     setBackupStatus(true);
+  };
+
+  const resetRef = React.useRef(null);
+  const confirmRef = React.useRef(null);
+  const pendingEntry = entries.find((entry) => !Object.hasOwn(labels, entry.id) && !(entry.text || "").trim());
+  // The reset confirmation is a floating popover anchored to its button, so
+  // opening it never reflows the rows below (dismiss on outside click/Esc).
+  React.useEffect(() => {
+    if (!confirmReset) return undefined;
+    const onPointerDown = (event) => {
+      if (confirmRef.current?.contains(event.target) || resetRef.current?.contains(event.target)) return;
+      setConfirmReset(false);
+    };
+    const onKeyDown = (event) => { if (event.key === "Escape") { event.preventDefault(); setConfirmReset(false); } };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown, true);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown, true);
+    };
+  }, [confirmReset]);
+  const addEntry = () => {
+    // Only one unnamed/unconfigured draft at a time: the button stays disabled
+    // until the new entry has at least one match tag.
+    if (pendingEntry) { rows.current.get(pendingEntry.id)?.querySelector("[data-pattern-input]")?.focus(); return; }
+    if (entries.length >= MAX_SCHEME_ENTRIES) return;
+    const id = `custom:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
+    updateScheme(resolved, (scheme) => [...scheme, { id, name: "", enabled: true,
+      color: scheme.find((entry) => entry.id === "error")?.color ?? "#f44747", mode: "regex", caseSensitive: false, text: "" }]);
+    // The new row is appended at the bottom (outside the visible list window):
+    // scroll it into view and focus its first tag input.
+    requestAnimationFrame(() => requestAnimationFrame(() => {
+      const list = listRef.current;
+      if (list) list.scrollTop = list.scrollHeight;
+      rows.current.get(id)?.querySelector("[data-pattern-input]")?.focus();
+    }));
   };
 
   // ---- pointer drag reorder -------------------------------------------------
@@ -261,24 +311,35 @@ export function TerminalDisplaySettings() {
     const wasActive = state.active;
     if (wasActive) suppressClick.current = Date.now() + 400;
     const ghost = state.ghost;
+    const list = listRef.current;
+    // Freeze the row transitions while the DOM settles: the rows are already
+    // at their previewed offsets, so removing the transforms and committing the
+    // new order does not visibly jump, and the destination rect can be measured
+    // at its final position (a running transition would return a mid-flight
+    // rect, which is why the ghost used to land short of the slot).
+    list?.setAttribute("data-settling", "true");
     clearVisuals(state, true);
     setDragId(null);
-    if (!wasActive) { ghost?.remove(); return; }
+    if (!wasActive) { list?.removeAttribute("data-settling"); ghost?.remove(); return; }
     if (commitMove && state.slot) {
       const sourceIndex = state.rows.findIndex((row) => row.id === state.id);
       if (dropIndex(state.rows, state.id, state.slot) !== sourceIndex && state.slot.id !== state.id) {
         move(state.id, state.slot.id, state.slot.side);
       }
     }
-    // Let React commit the new order, then glide the ghost into the real slot.
     await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+    list?.removeAttribute("data-settling");
     const destination = rows.current.get(state.id);
     if (!ghost || !ghost.isConnected || !destination) { ghost?.remove(); return; }
-    const from = ghost.getBoundingClientRect();
+    // The ghost is placed with left/top and tilted with a CSS transform. Glide
+    // from its untilted box (left/top + offset size) so the end position is the
+    // row's rect exactly, independent of the tilt.
     const to = destination.getBoundingClientRect();
+    const fromLeft = Number.parseFloat(ghost.style.left) || 0;
+    const fromTop = Number.parseFloat(ghost.style.top) || 0;
     const animation = ghost.animate([
-      { transform: `translate(${0}px, ${0}px) rotate(-1.5deg) scale(1.012)`, opacity: 0.92 },
-      { transform: `translate(${to.left - from.left}px, ${to.top - from.top}px) rotate(0) scale(1)`, opacity: 1 }
+      { transform: "rotate(-1.5deg) scale(1.012)", opacity: 0.92 },
+      { transform: `translate(${to.left - fromLeft}px, ${to.top - fromTop}px) rotate(0) scale(1)`, opacity: 1 }
     ], { duration: 220, easing: "cubic-bezier(.22,.61,.36,1)" });
     try { await animation.finished; } catch { /* interrupted */ }
     ghost.remove();
@@ -316,19 +377,18 @@ export function TerminalDisplaySettings() {
       </label>
     </fieldset>
     {settings.highlightEnabled && <>
-      <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "16px 0 8px" }}>
+      <div style={{ position: "relative", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "16px 0 8px" }}>
         <h4 style={{ fontSize: 13, margin: 0, marginRight: "auto" }}>{t("配色方案")}</h4>
-        <button type="button" style={button} onClick={() => setConfirmReset(true)}>{t("恢复当前主题默认配色方案")}</button>
+        <button ref={resetRef} type="button" style={button} aria-expanded={confirmReset} aria-haspopup="dialog"
+          onClick={() => setConfirmReset((open) => !open)}>{t("恢复当前主题默认配色方案")}</button>
         <button type="button" style={button} onClick={backup}>{t("备份当前配色方案")}</button>
+        {confirmReset && <div ref={confirmRef} className="dsh-reset-popover" role="alertdialog" aria-label={t("恢复默认配色方案确认")}>
+          <span style={{ flex: "1 1 200px", lineHeight: 1.5 }}>{t("将恢复当前主题的默认配色方案，当前修改会被覆盖。建议先备份。")}</span>
+          <button type="button" style={button} onClick={backup}>{t("先备份")}</button>
+          <button type="button" style={{ ...button, borderColor: "#2d6cdf", color: "#2d6cdf" }} onClick={() => { resetScheme(resolved); setConfirmReset(false); }}>{t("恢复默认")}</button>
+          <button type="button" style={button} onClick={() => setConfirmReset(false)}>{t("取消")}</button>
+        </div>}
       </div>
-      {confirmReset && <div role="alertdialog" aria-label={t("恢复默认配色方案确认")}
-        style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "0 0 8px", padding: "8px 10px",
-          border: "1px solid #2d6cdf", borderRadius: 8, background: "rgba(45,108,223,.08)", fontSize: 12 }}>
-        <span style={{ flex: "1 1 260px", lineHeight: 1.5 }}>{t("将恢复当前主题的默认配色方案，当前修改会被覆盖。建议先备份。")}</span>
-        <button type="button" style={button} onClick={backup}>{t("先备份")}</button>
-        <button type="button" style={{ ...button, borderColor: "#2d6cdf", color: "#2d6cdf" }} onClick={() => { resetScheme(resolved); setConfirmReset(false); }}>{t("恢复默认")}</button>
-        <button type="button" style={button} onClick={() => setConfirmReset(false)}>{t("取消")}</button>
-      </div>}
       {backupStatus && <div role="status" style={{ fontSize: 11, marginBottom: 6, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("已导出当前主题配色方案（JSON）。")}</div>}
       <p style={{ fontSize: 11, lineHeight: 1.6, margin: "0 0 8px", color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{resolved === "light" ? t("正在编辑浅色主题。") : t("正在编辑深色主题。")}{" "}{t("拖动左侧手柄可调整优先级；拖动时显示浮动预览与虚线占位，也可使用 Alt + 方向键。")}</p>
       <div ref={listRef} className="dsh-scheme-list" onClickCapture={onListClickCapture}
@@ -345,10 +405,8 @@ export function TerminalDisplaySettings() {
         <div ref={indicator} className="dsh-drop-indicator" aria-hidden="true" />
       </div>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10 }}>
-        <button type="button" disabled={entries.length >= MAX_SCHEME_ENTRIES} style={{ ...button, marginTop: 0 }} onClick={() => updateScheme(resolved, (scheme) => [...scheme, {
-          id: `custom:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`, name: "", enabled: true,
-          color: entries.find((entry) => entry.id === "error")?.color ?? "#f44747", mode: "regex", caseSensitive: false, text: ""
-        }])}>{t("添加配色项")}</button>
+        <button type="button" disabled={entries.length >= MAX_SCHEME_ENTRIES || Boolean(pendingEntry)} style={{ ...button, marginTop: 0 }}
+          title={pendingEntry ? t("先填写新建的配色项") : undefined} onClick={addEntry}>{t("添加配色项")}</button>
         <span style={{ fontSize: 11, lineHeight: 1.5, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("每个标签是一个关键词或正则，无需 / 分隔符。Enter 添加，点击标签编辑，拖动左侧手柄调整优先级。")}</span>
       </div>
       <div style={{ fontSize: 12, margin: "16px 0 8px" }}>{t("配色预览")}</div>
