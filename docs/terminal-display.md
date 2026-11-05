@@ -28,7 +28,7 @@ Palettes and classification rules are adapted from WindTerm 2.7.0; see [third-pa
 ## Validation
 
 ```sh
-node --test test/output-highlight.mjs test/terminal-display-settings.mjs test/regex-worker.mjs test/highlight-refresh.mjs
+node --test test/output-highlight.mjs test/terminal-display-settings.mjs test/regex-worker.mjs test/highlight-refresh.mjs test/highlight-drag-order.mjs
 npm test
 npm run lint
 npm run build
