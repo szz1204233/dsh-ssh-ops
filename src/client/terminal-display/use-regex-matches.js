@@ -11,10 +11,13 @@ export function useRegexMatches(entries, text) {
   }, []);
   useEffect(() => {
     let current = true;
-    setResult({ lines: [], error: "" });
+    // Keep the previous colours on screen while the next match runs; clearing
+    // first makes the preview flicker on every keystroke.
     const timer = setTimeout(() => {
       lease.current?.match(entries, texts).then((value) => {
-        if (current && !value.cancelled) setResult({ lines: value.lines ?? [], error: value.error ?? "" });
+        if (!current || value.cancelled) return;
+        if (value.error) setResult({ lines: [], error: value.error });
+        else setResult({ lines: value.lines ?? [], error: "" });
       });
     }, 80);
     return () => { current = false; clearTimeout(timer); };

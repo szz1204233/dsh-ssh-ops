@@ -52,17 +52,22 @@ export function matchText(text, rules = HIGHLIGHT_RULES, colors = COLORS, limit 
 export function readLogicalLine(buffer, start, maxCells = 16384) {
   let text = "", y = start, cells = 0;
   const positions = [];
+  // One scratch cell per read: xterm's getCell(x) allocates a CellData on
+  // every call unless a reusable cell is supplied, which is the bulk of this
+  // function's allocation on a 200-row scan.
+  const scratch = typeof buffer.getNullCell === "function" ? buffer.getNullCell() : undefined;
+  const cellAt = (line, x) => (scratch ? line.getCell(x, scratch) : line.getCell(x));
   do {
     const line = buffer.getLine(y);
     if (!line) break;
     const nextLine = buffer.getLine(y + 1);
-    const last = line.getCell(line.length - 1);
+    const last = cellAt(line, line.length - 1);
     // xterm inserts an empty padding cell when a wide glyph cannot fit at
     // the right edge. It is not a space in the original logical text.
-    const padded = nextLine?.isWrapped && last?.getCode() === 0 && last.getWidth() === 1 && nextLine.getCell(0)?.getWidth() === 2;
+    const padded = nextLine?.isWrapped && last?.getCode() === 0 && last.getWidth() === 1 && cellAt(nextLine, 0)?.getWidth() === 2;
     const length = line.length - (padded ? 1 : 0);
     for (let x = 0; x < length && cells < maxCells; x++, cells++) {
-      const cell = line.getCell(x);
+      const cell = cellAt(line, x);
       if (!cell || cell.getWidth() === 0) continue;
       const chars = cell.getChars() || " ";
       const position = { x, y, width: cell.getWidth(), eligible: cell.isAttributeDefault() };

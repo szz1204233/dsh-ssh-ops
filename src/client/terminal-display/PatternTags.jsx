@@ -4,6 +4,11 @@ import { splitPatterns, patternProblem, MAX_PATTERN_LENGTH, MAX_PATTERNS, MAX_SC
 
 export function PatternTags({ label, text, disabled, onChange }) {
   const patterns = React.useMemo(() => splitPatterns(text), [text]);
+  // Compile each tag once per text change instead of twice per render (the
+  // inline error and every chip used to call patternProblem separately); a
+  // maximum scheme of 43 entries x 64 tags re-renders the whole tree on every
+  // keystroke in the preview, where this duplication was measurable.
+  const problems = React.useMemo(() => new Map(patterns.map((source) => [source, patternProblem(source)])), [patterns]);
   const [draft, setDraft] = React.useState("");
   const [editing, setEditing] = React.useState(null);
   const [error, setError] = React.useState("");
@@ -26,7 +31,7 @@ export function PatternTags({ label, text, disabled, onChange }) {
     if (!fits(unique)) return false;
     onChange(unique.join("\n")); setDraft(""); setEditing(null); setError(""); return true;
   };
-  const invalid = patterns.some((source) => patternProblem(source));
+  const invalid = patterns.some((source) => problems.get(source));
   return <div style={{ minWidth: 0 }}>
     <div className="dsh-pattern-tags" style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 4, minHeight: 28,
       border: `1px solid ${error || invalid ? "#e5484d" : "var(--dsh-ssh-ops-border, #3a414b)"}`, borderRadius: 6, padding: 4,
@@ -36,7 +41,7 @@ export function PatternTags({ label, text, disabled, onChange }) {
         <button type="button" disabled={disabled} title={source} aria-label={t(`编辑 ${label} 标签 ${source}`)}
           onMouseDown={(event) => event.preventDefault()} onClick={() => { setDraft(source); setEditing(index); setError(""); input.current?.focus(); }}
           style={{ minWidth: 0, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "monospace", fontSize: 11, lineHeight: "20px", padding: "0 5px",
-            border: 0, background: "transparent", color: patternProblem(source) ? "#e5484d" : "inherit", cursor: "text" }}>{source}</button>
+            border: 0, background: "transparent", color: problems.get(source) ? "#e5484d" : "inherit", cursor: "text" }}>{source}</button>
         <button type="button" disabled={disabled} aria-label={t(`删除 ${label} 标签 ${source}`)} onMouseDown={(event) => event.preventDefault()}
           onClick={() => { onChange(patterns.filter((_, i) => i !== index).join("\n")); setDraft(""); setEditing(null); setError(""); input.current?.focus(); }}
           style={{ border: 0, background: "transparent", color: "var(--dsh-ssh-ops-muted, #8b93a1)", padding: "0 4px", fontSize: 12, cursor: "pointer", lineHeight: "20px" }}>×</button>
