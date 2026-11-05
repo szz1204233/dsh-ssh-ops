@@ -34,8 +34,9 @@ export function TerminalAppearanceButton({ style }) {
   return <>
     <button ref={trigger} type="button" style={style} aria-label={t("终端外观")} title={t("终端外观")} aria-haspopup="dialog" aria-expanded={open} onClick={() => setOpen(true)}>
       <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-        <path d="m14 6 4 4M4 20c4 0 5-1 5-4a3 3 0 0 0-3-3c-3 0-1 4-4 5 0 1 1 2 2 2Z" />
-        <path d="m8 14 10-11a2 2 0 0 1 3 3L10 16" />
+        <path d="M12 3a9 9 0 1 0 0 18h1.2a2.3 2.3 0 0 0 1.7-3.8 1.3 1.3 0 0 1 1-2.2h1.6a3.5 3.5 0 0 0 3.5-3.5A8.8 8.8 0 0 0 12 3Z" />
+        <circle cx="7.5" cy="10.5" r=".9" /><circle cx="10" cy="6.8" r=".9" />
+        <circle cx="14.5" cy="7" r=".9" /><circle cx="17.5" cy="10" r=".9" />
       </svg>
     </button>
     {open && <AppearanceDialog onClose={() => { setOpen(false); trigger.current?.focus(); }} />}

@@ -34,12 +34,12 @@ test("stable snapshots, multiple subscribers, other-window updates and clear", (
   f.dispatch(JSON.stringify({ highlightEnabled: false, theme: "dark" }));
   assert.deepEqual(store.getSnapshot(), { highlightEnabled: false, theme: "dark" });
   assert.equal(updates, 4);
-  f.dispatch(null, null); assert.deepEqual(store.getSnapshot(), { highlightEnabled: true, theme: "system" });
+  f.dispatch(null, null); assert.deepEqual(store.getSnapshot(), { highlightEnabled: false, theme: "system" });
   a(); b(); assert.equal(f.listeners.size, 0);
 });
 test("invalid stored settings degrade safely and blocked storage stays usable", () => {
   for (const value of ["{broken", 'null', '{"theme":"unknown","highlightEnabled":true}']) {
-    assert.deepEqual(createDisplaySettings(fixture({ [KEY]: value })).getSnapshot(), { highlightEnabled: true, theme: "system" });
+    assert.deepEqual(createDisplaySettings(fixture({ [KEY]: value })).getSnapshot(), { highlightEnabled: false, theme: "system" });
   }
   const store = createDisplaySettings({ storage: { getItem() { throw Error('blocked'); }, setItem() { throw Error('blocked'); } }, eventTarget: {} });
   const stop = store.subscribe(() => {});
@@ -53,7 +53,7 @@ test("resubscribing observes storage deletion and keeps unsaved changes after qu
   store.subscribe(() => {})();
   f.storage.removeItem(KEY);
   const stop = store.subscribe(() => {});
-  assert.deepEqual(store.getSnapshot(), { theme: "system", highlightEnabled: true });
+  assert.deepEqual(store.getSnapshot(), { theme: "system", highlightEnabled: false });
   stop();
 
   f.storage.setItem(KEY, JSON.stringify({ theme: "dark", highlightEnabled: true }));
@@ -206,5 +206,62 @@ test("rule add/edit/reorder/toggle/delete update every live terminal and preserv
   } finally {
     terminals.forEach((term) => term.dispose());
     setDisplaySettings({ ...original, customRules: original.customRules ?? [], builtinEnabled: original.builtinEnabled !== false });
+  }
+});
+
+test("default highlighting is off, with explicit and legacy opt-ins preserved", () => {
+  assert.deepEqual(createDisplaySettings(fixture()).getSnapshot(), { theme: "system", highlightEnabled: false });
+  assert.equal(createDisplaySettings(fixture({ "dsh-ssh-ops.private-output-highlight.enabled": "true" })).getSnapshot().highlightEnabled, true);
+  assert.equal(createDisplaySettings(fixture({ [KEY]: JSON.stringify({ theme: "light", highlightEnabled: true }) })).getSnapshot().highlightEnabled, true);
+});
+
+test("theme schemes persist, synchronize and reset independently, preserving migrated settings", async () => {
+  const { getScheme, defaultScheme, exportScheme } = await import("../src/client/terminal-display/scheme.js");
+  const { updateScheme, resetScheme } = await import("../src/client/terminal-display/settings.js");
+  const original = getDisplaySettings();
+  try {
+    setDisplaySettings({ theme: "dark", schemes: {}, colors: { dark: { error: "#123456" }, light: { error: "#654321" } },
+      customRules: [{ id: "old", text: "OLD", color: "success", enabled: false }], builtinEnabled: true });
+    const migrated = getScheme(getDisplaySettings(), "dark");
+    assert.equal(migrated.find((entry) => entry.id === "error").color, "#123456");
+    assert.equal(migrated[0].text, "OLD"); assert.equal(migrated[0].enabled, false);
+    updateScheme("dark", (entries) => entries.map((entry) => entry.id === "error" ? { ...entry, text: "BROKEN", color: "#abcdef", enabled: false } : entry));
+    updateScheme("light", (entries) => entries.map((entry) => entry.id === "error" ? { ...entry, text: "OUTAGE" } : entry));
+    const dark = getScheme(getDisplaySettings(), "dark");
+    const json = exportScheme(getDisplaySettings(), "dark");
+    assert.deepEqual(JSON.parse(json).entries, dark);
+    assert.equal(JSON.parse(json).theme, "dark");
+    const f = fixture({ [KEY]: JSON.stringify(getDisplaySettings()) }), store = createDisplaySettings(f);
+    assert.deepEqual(getScheme(store.getSnapshot(), "dark"), dark);
+    const off = store.subscribe(() => {});
+    resetScheme("dark");
+    f.dispatch(JSON.stringify(getDisplaySettings()));
+    assert.deepEqual(getScheme(store.getSnapshot(), "dark"), defaultScheme("dark"));
+    assert.equal(getScheme(store.getSnapshot(), "light").find((entry) => entry.id === "error").text, "OUTAGE");
+    off();
+  } finally { setDisplaySettings({ ...original, schemes: original.schemes ?? {}, colors: original.colors ?? {}, customRules: original.customRules ?? [], builtinEnabled: original.builtinEnabled !== false }); }
+});
+
+test("editing a scheme entry replaces its matching text, toggles locally and updates both terminals", async () => {
+  const { updateScheme } = await import("../src/client/terminal-display/settings.js");
+  const original = getDisplaySettings();
+  setDisplaySettings({ theme: "dark", highlightEnabled: true, schemes: {}, colors: {}, customRules: [], builtinEnabled: true });
+  const terminals = [0, 1].map(() => new xterm.Terminal({ cols: 50, rows: 3, allowProposedApi: true }));
+  const addons = terminals.map((term) => { const addon = new OutputHighlightAddon(); term.loadAddon(addon); return addon; });
+  try {
+    for (const term of terminals) await new Promise((resolve) => term.write("ERROR BROKEN \x1b[36mBROKEN\x1b[0m", resolve));
+    updateScheme("dark", (entries) => entries.map((entry) => entry.id === "error" ? { ...entry, text: "BROKEN", color: "#123456" } : entry));
+    for (const addon of addons) {
+      addon.scan();
+      const runs = JSON.parse(addon.rows[0].signature);
+      assert.deepEqual(runs.filter((run) => run.foregroundColor === "#123456"), [{ x: 6, width: 6, foregroundColor: "#123456" }]);
+    }
+    updateScheme("dark", (entries) => entries.map((entry) => entry.id === "error" ? { ...entry, enabled: false } : entry));
+    for (const addon of addons) { addon.scan(); assert.equal(addon.rows.length, 0); }
+    setDisplaySettings({ highlightEnabled: false });
+    assert.ok(addons.every((addon) => addon.rows.length === 0));
+  } finally {
+    terminals.forEach((term) => term.dispose());
+    setDisplaySettings({ ...original, schemes: original.schemes ?? {}, colors: original.colors ?? {}, customRules: original.customRules ?? [], builtinEnabled: original.builtinEnabled !== false });
   }
 });

@@ -1,39 +1,46 @@
 import * as React from "react";
 import { t } from "../../i18n/core.js";
 import { useLanguage } from "../locale.js";
-import { getDisplaySettings, setDisplaySettings, subscribeDisplaySettings, setDisplayColor, resetDisplayColors } from "./settings.js";
+import { getDisplaySettings, setDisplaySettings, subscribeDisplaySettings, updateScheme, resetScheme } from "./settings.js";
 import { terminalTheme, resolveDisplayTheme, subscribeHostTheme, getHostTheme } from "./theme.js";
-import { colorsForTheme, HIGHLIGHT_RULES } from "./rules.js";
-import { compileCustomRules } from "./custom-rules.js";
-import { matchText } from "./matcher.js";
-import { CustomHighlightRules, appearanceButtonStyle } from "./CustomHighlightRules.jsx";
+import { compileScheme, getScheme, exportScheme, MAX_SCHEME_ENTRIES, MAX_SCHEME_TEXT } from "./scheme.js";
+import { EditablePreview } from "./EditablePreview.jsx";
 
 const PREVIEW_TEXT = 'demo@host:~$ cat --lines=42 /var/log/app.log\n2026-10-30 12:30:15 ERROR connection refused\nSUCCESS service started 192.168.1.10\ndebug retries=42 "text"\ndrwxr-xr-x demo logs';
-function previewLine(text, colors, enabled, rules) {
-  if (!enabled) return text;
-  const parts = [];
-  let end = 0;
-  for (const span of matchText(text, rules, colors)) {
-    parts.push(text.slice(end, span.start));
-    parts.push(<span key={span.start} style={{ color: span.color }}>{text.slice(span.start, span.end)}</span>);
-    end = span.end;
-  }
-  parts.push(text.slice(end));
-  return parts;
-}
-function ColorSetting({ label, example, value, onChange }) {
-  const [draft, setDraft] = React.useState(value);
-  React.useEffect(() => setDraft(value), [value]);
-  return <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 36px 92px", gap: 8, alignItems: "center", marginTop: 12 }}>
-    <div style={{ minWidth: 0 }}><div style={{ fontSize: 13 }}>{label}</div>
-      <div style={{ fontSize: 11, marginTop: 3, color: "var(--dsh-ssh-ops-muted, #8b93a1)", overflowWrap: "anywhere" }}>{example}</div>
+const button = { padding: "5px 8px", borderRadius: 5, cursor: "pointer", fontSize: 12, color: "inherit", background: "transparent", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)" };
+const field = { boxSizing: "border-box", minWidth: 0, padding: "6px 8px", borderRadius: 5, fontSize: 12, color: "inherit",
+  background: "var(--dsh-ssh-ops-input, #101418)", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)" };
+function SchemeEntry({ entry, label, onChange, onDelete, onMove, first, last }) {
+  const [hex, setHex] = React.useState(entry.color);
+  const toggleId = React.useId();
+  React.useEffect(() => setHex(entry.color), [entry.color]);
+  return <div style={{ padding: "14px 0", borderBottom: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) 32px 86px", alignItems: "center", gap: 8 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, minWidth: 0 }}>
+        <input id={toggleId} type="checkbox" checked={entry.enabled} aria-label={t(`启用 ${label}`)} onChange={(event) => onChange({ enabled: event.target.checked })} />
+        {onDelete ? <input aria-label={t("配色项名称")} value={entry.name} placeholder={t("自定义配色项")} maxLength={80}
+          onChange={(event) => onChange({ name: event.target.value })} style={{ ...field, width: "100%" }} /> : <label htmlFor={toggleId}>{label}</label>}
+      </div>
+      <input type="color" aria-label={label} value={entry.color} disabled={!entry.enabled} onChange={(event) => onChange({ color: event.target.value })}
+        style={{ width: 32, height: 30, padding: 2, background: "transparent", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 4 }} />
+      <input aria-label={label + " HEX"} value={hex} disabled={!entry.enabled} maxLength={7} spellCheck={false}
+        onChange={(event) => { setHex(event.target.value); if (/^#[0-9a-f]{6}$/i.test(event.target.value)) onChange({ color: event.target.value }); }} onBlur={() => setHex(entry.color)}
+        style={{ ...field, width: 86, padding: "6px", fontFamily: "monospace" }} />
     </div>
-    <input type="color" aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}
-      style={{ width: 36, height: 30, padding: 2, background: "transparent", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 4, cursor: "pointer" }} />
-    <input type="text" aria-label={label + " HEX"} value={draft} maxLength={7} spellCheck={false}
-      onChange={(event) => { const next = event.target.value; setDraft(next); if (/^#[0-9a-f]{6}$/i.test(next)) onChange(next); }} onBlur={() => setDraft(value)}
-      style={{ width: 92, boxSizing: "border-box", padding: 6, borderRadius: 4, fontFamily: "monospace", fontSize: 12,
-        background: "var(--dsh-ssh-ops-input, #101418)", color: "inherit", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }} />
+    <textarea aria-label={t(`${label} 匹配文本`)} value={entry.text} rows={2} maxLength={MAX_SCHEME_TEXT} disabled={!entry.enabled} spellCheck={false}
+      placeholder={entry.mode === "auto" ? t("自动识别；可补充匹配文本，每行一项") : t("匹配文本，每行一项")}
+      onChange={(event) => onChange({ text: event.target.value })} style={{ ...field, width: "100%", resize: "vertical", marginTop: 8, fontFamily: "monospace", lineHeight: 1.5 }} />
+    <div style={{ display: "flex", alignItems: "center", flexWrap: "wrap", gap: 8, marginTop: 7, fontSize: 11 }}>
+      <select aria-label={t(`${label} 匹配方式`)} value={entry.mode} disabled={!entry.enabled} onChange={(event) => onChange({ mode: event.target.value })} style={{ ...field, padding: "4px" }}>
+        {!onDelete && <option value="auto">{t("自动识别")}</option>}<option value="contains">{t("包含文本")}</option><option value="word">{t("完整词")}</option>
+      </select>
+      <label style={{ display: "flex", alignItems: "center", gap: 3 }}><input type="checkbox" checked={entry.caseSensitive} disabled={!entry.enabled} onChange={(event) => onChange({ caseSensitive: event.target.checked })} />{t("区分大小写")}</label>
+      <div style={{ display: "flex", gap: 4, marginLeft: "auto" }}>
+        <button type="button" disabled={first} style={{ ...button, padding: "2px 6px" }} aria-label={t(`上移配色项 ${label}`)} onClick={() => onMove(-1)}>↑</button>
+        <button type="button" disabled={last} style={{ ...button, padding: "2px 6px" }} aria-label={t(`下移配色项 ${label}`)} onClick={() => onMove(1)}>↓</button>
+        {onDelete && <button type="button" style={{ ...button, padding: "2px 6px" }} aria-label={t(`删除配色项 ${label}`)} onClick={onDelete}>×</button>}
+      </div>
+    </div>
   </div>;
 }
 export function TerminalDisplaySettings() {
@@ -41,48 +48,59 @@ export function TerminalDisplaySettings() {
   const settings = React.useSyncExternalStore(subscribeDisplaySettings, getDisplaySettings);
   React.useSyncExternalStore(subscribeHostTheme, getHostTheme);
   const [preview, setPreview] = React.useState(PREVIEW_TEXT);
-  const radioName = React.useId();
-  const resolved = resolveDisplayTheme(settings.theme);
-  const theme = terminalTheme(settings.theme), colors = colorsForTheme(resolved, settings.colors?.[resolved]);
-  const rules = React.useMemo(() => [...compileCustomRules(settings.customRules), ...(settings.builtinEnabled === false ? [] : HIGHLIGHT_RULES)], [settings.customRules, settings.builtinEnabled]);
-  const labels = [
-    ["error", t("错误与否定"), "ERROR / false"], ["success", t("成功与肯定"), "SUCCESS / true"],
-    ["warning", t("警示状态"), "debug / stopped"], ["info", t("信息关键词"), "connection / info"],
-    ["heading", t("地址、时间与符号"), "192.168.1.10 / 2026-10-30"], ["number", t("数字"), "42 / 3.14"],
-    ["string", t("字符串与路径"), '"text" / /var/log'], ["option", t("命令选项"), "--timeout"],
-    ["command", t("命令名称"), "cat / grep"], ["debug", t("文件类型"), "d / l"], ["prompt", t("提示符"), "$ / #"]
-  ];
+  const [backupStatus, setBackupStatus] = React.useState(false);
+  const radioName = React.useId(), resolved = resolveDisplayTheme(settings.theme);
+  const entries = React.useMemo(() => getScheme(settings, resolved), [settings, resolved]);
+  const compiled = React.useMemo(() => compileScheme(entries), [entries]);
+  const labels = { error: t("错误与否定"), success: t("成功与肯定"), warning: t("警示状态"), info: t("信息关键词"),
+    heading: t("地址、时间与符号"), number: t("数字"), string: t("字符串与路径"), option: t("命令选项"), command: t("命令名称"), debug: t("文件类型"), prompt: t("提示符") };
+  const change = (id, patch) => updateScheme(resolved, (scheme) => scheme.map((entry) => entry.id === id ? { ...entry, ...patch } : entry));
+  const move = (id, direction) => updateScheme(resolved, (scheme) => {
+    const next = [...scheme], index = next.findIndex((entry) => entry.id === id), target = index + direction;
+    if (index >= 0 && target >= 0 && target < next.length) [next[index], next[target]] = [next[target], next[index]];
+    return next;
+  });
+  const backup = () => {
+    const url = URL.createObjectURL(new Blob([exportScheme(getDisplaySettings(), resolved)], { type: "application/json" }));
+    const link = document.createElement("a"); link.href = url;
+    link.download = `dsh-ssh-ops-${resolved}-scheme-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    setBackupStatus(true);
+  };
   return <section aria-label={t("终端显示")} style={{ padding: "4px 20px 20px", color: "var(--dsh-ssh-ops-text, #d7dbe2)" }}>
     <p style={{ margin: "0 0 18px", fontSize: 12, lineHeight: 1.6, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("适用于所有 SSH 终端，修改后自动保存。")}</p>
     <fieldset style={{ border: 0, padding: 0, margin: "0 0 18px" }}>
       <legend style={{ fontSize: 13, marginBottom: 10 }}>{t("终端主题")}</legend>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 16 }}>
-        {[["system", t("跟随 DSH")], ["dark", t("深色")], ["light", t("浅色")]].map(([value, label]) =>
-          <label key={value} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12 }}>
-            <input type="radio" name={radioName} value={value} checked={settings.theme === value} onChange={() => setDisplaySettings({ theme: value })} />{label}
-          </label>)}
+        {[["system", t("跟随 DSH")], ["dark", t("深色")], ["light", t("浅色")]].map(([value, label]) => <label key={value} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12 }}>
+          <input type="radio" name={radioName} value={value} checked={settings.theme === value} onChange={() => { setDisplaySettings({ theme: value }); setBackupStatus(false); }} />{label}
+        </label>)}
       </div>
     </fieldset>
     <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
       <input type="checkbox" checked={settings.highlightEnabled} onChange={(event) => setDisplaySettings({ highlightEnabled: event.target.checked })} />{t("启用语义高亮")}
     </label>
-    <p style={{ fontSize: 12, margin: "8px 0 18px", lineHeight: 1.6, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("按关键词、地址、时间等类型着色，保留服务器原有样式。")}</p>
-    <details style={{ margin: "18px 0" }}>
-      <summary style={{ cursor: "pointer", fontSize: 13, fontWeight: 500 }}>{t("自定义颜色")}</summary>
-      <p style={{ fontSize: 12, lineHeight: 1.6, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("支持颜色选择器或 #RRGGBB，按主题分别保存。")}{" "}{resolved === "light" ? t("正在编辑浅色主题。") : t("正在编辑深色主题。")}</p>
-      <button type="button" onClick={() => resetDisplayColors(resolved)} disabled={!Object.keys(settings.colors?.[resolved] ?? {}).length} style={appearanceButtonStyle}>{t("恢复当前主题默认颜色")}</button>
-      {labels.map(([key, label, example]) => <ColorSetting key={`${resolved}-${key}`} label={label} example={example} value={colors[key]} onChange={(color) => setDisplayColor(resolved, key, color)} />)}
-    </details>
-    <CustomHighlightRules settings={settings} labels={labels} colors={colors} />
-    <div style={{ fontSize: 12, margin: "18px 0 8px" }}>{t("配色预览")}</div>
-    <pre aria-label={t("配色预览")} style={{ background: theme.background, color: theme.foreground, padding: 12,
-      border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 6, fontSize: 12, lineHeight: 1.7, overflow: "auto", margin: 0 }}>
-      {preview.split("\n").map((text, index) => <React.Fragment key={index}>{index > 0 ? "\n" : ""}{previewLine(text, colors, settings.highlightEnabled, rules)}</React.Fragment>)}
-    </pre>
-    <details style={{ marginTop: 12 }}><summary style={{ fontSize: 12, cursor: "pointer" }}>{t("编辑预览文本")}</summary>
-      <textarea aria-label={t("预览文本")} value={preview} maxLength={2048} onChange={(event) => setPreview(event.target.value)} rows={5}
-        style={{ boxSizing: "border-box", width: "100%", resize: "vertical", marginTop: 8, padding: 8, fontFamily: "monospace", fontSize: 12,
-          color: "inherit", background: "var(--dsh-ssh-ops-input, #101418)", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 5 }} />
-    </details>
+    {settings.highlightEnabled && <>
+      <h4 style={{ fontSize: 13, margin: "20px 0 10px" }}>{t("配色方案")}</h4>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+        <button type="button" style={button} onClick={() => resetScheme(resolved)}>{t("恢复当前主题默认配色方案")}</button>
+        <button type="button" style={button} onClick={backup}>{t("备份当前配色方案")}</button>
+      </div>
+      {backupStatus && <div role="status" style={{ fontSize: 11, marginTop: 8 }}>{t("已导出当前主题配色方案（JSON）。")}</div>}
+      <p style={{ fontSize: 11, lineHeight: 1.6, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{resolved === "light" ? t("正在编辑浅色主题。") : t("正在编辑深色主题。")}{" "}{t("每行填写一个匹配文本，靠前的配色项优先。自动识别可补充文本；其他方式只匹配填写的内容。")}</p>
+      {entries.map((entry, index) => {
+        const custom = !Object.hasOwn(labels, entry.id), label = custom ? (entry.name || t("自定义配色项")) : labels[entry.id];
+        return <SchemeEntry key={`${resolved}:${entry.id}`} entry={entry} label={label} first={index === 0} last={index === entries.length - 1}
+          onChange={(patch) => change(entry.id, patch)} onMove={(direction) => move(entry.id, direction)}
+          onDelete={custom ? () => updateScheme(resolved, (scheme) => scheme.filter((item) => item.id !== entry.id)) : undefined} />;
+      })}
+      <button type="button" disabled={entries.length >= MAX_SCHEME_ENTRIES} style={{ ...button, marginTop: 12 }} onClick={() => updateScheme(resolved, (scheme) => [...scheme, {
+        id: `custom:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`, name: "", enabled: true,
+        color: compiled.colors.error ?? "#f44747", mode: "contains", caseSensitive: false, text: ""
+      }])}>{t("添加配色项")}</button>
+      <div style={{ fontSize: 12, margin: "20px 0 8px" }}>{t("配色预览")}</div>
+      <EditablePreview text={preview} onChange={setPreview} theme={terminalTheme(settings.theme)} colors={compiled.colors} rules={compiled.rules} />
+    </>}
   </section>;
 }

@@ -5,6 +5,7 @@ import { COLORS, HIGHLIGHT_RULES } from "./rules.js";
 export function matchText(text, rules = HIGHLIGHT_RULES, colors = COLORS) {
   const occupied = new Uint8Array(text.length), spans = [];
   const add = (start, end, color) => {
+    if (!color) return;
     if (occupied.subarray(start, end).some(Boolean)) return;
     occupied.fill(1, start, end); spans.push({ start, end, color });
   };
@@ -12,15 +13,17 @@ export function matchText(text, rules = HIGHLIGHT_RULES, colors = COLORS) {
   const prompt = /^(?![-+])[^\n]*?(?:[$#>]|(?<!\d)%)[ \t]+/.exec(text);
   const context = prompt ? prompt[0].length : -1;
   for (const rule of rules) {
-    if (rule.id === "mac" && context >= 0) {
-      for (const command of text.slice(context).matchAll(/(?:^|[|])\s*([\w.-]+)(?=\s|$)/g)) {
+    if ((rule.id === "context" || (rule.id === "mac" && rule.context !== false)) && context >= 0) {
+      const enabled = (key) => !Array.isArray(rule.context) || rule.context.includes(key);
+      for (const command of enabled("command") ? text.slice(context).matchAll(/(?:^|[|])\s*([\w.-]+)(?=\s|$)/g) : []) {
         const start = context + command.index + command[0].lastIndexOf(command[1]);
         add(start, start + command[1].length, colors.command);
       }
       const sign = prompt[0].search(/[$#%>]/);
-      add(sign, sign + 1, colors.prompt);
-      for (const m of text.slice(context).matchAll(/(?:~?\/|[\w.-]+\/)[^\s"'|;<>]*/g)) add(context + m.index, context + m.index + m[0].length, colors.string);
+      if (enabled("prompt")) add(sign, sign + 1, colors.prompt);
+      for (const m of enabled("string") ? text.slice(context).matchAll(/(?:~?\/|[\w.-]+\/)[^\s"'|;<>]*/g) : []) add(context + m.index, context + m.index + m[0].length, colors.string);
     }
+    if (!rule.pattern) continue;
     const regex = new RegExp(rule.pattern.source, rule.pattern.flags.replace(/[gy]/g, "") + "g");
     for (const m of text.matchAll(regex)) {
       if (!m[0].length || (rule.accept && !rule.accept(m[0]))) continue;

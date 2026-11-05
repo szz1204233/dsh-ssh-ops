@@ -1,9 +1,10 @@
 import { COLORS } from "./rules.js";
 import { normalizeCustomRules, MAX_CUSTOM_RULES } from "./custom-rules.js";
+import { normalizeScheme, getScheme, defaultScheme } from "./scheme.js";
 
 const KEY = "dsh-ssh-ops.terminal-display.v1";
 const LEGACY_KEY = "dsh-ssh-ops.private-output-highlight.enabled";
-const DEFAULTS = Object.freeze({ highlightEnabled: true, theme: "system" });
+const DEFAULTS = Object.freeze({ highlightEnabled: false, theme: "system" });
 function parse(value) {
   try {
     const data = JSON.parse(value);
@@ -18,7 +19,13 @@ function parse(value) {
         if (Object.keys(overrides).length) colors[theme] = Object.freeze(overrides);
       }
       const customRules = normalizeCustomRules(data.customRules);
+      const schemes = {};
+      for (const theme of ["dark", "light"]) {
+        const scheme = normalizeScheme(data.schemes?.[theme]);
+        if (scheme) schemes[theme] = scheme;
+      }
       return Object.freeze({ ...(data.builtinEnabled === false ? { builtinEnabled: false } : {}),
+        ...(Object.keys(schemes).length ? { schemes: Object.freeze(schemes) } : {}),
         ...(customRules.length ? { customRules: Object.freeze(customRules) } : {}), highlightEnabled: data.highlightEnabled, theme: data.theme,
         ...(Object.keys(colors).length ? { colors: Object.freeze(colors) } : {}) });
     }
@@ -36,7 +43,7 @@ export function createDisplaySettings({ storage, eventTarget = globalThis } = {}
     const saved = storage?.getItem(KEY);
     lastStoredValue = saved;
     snapshot = saved === null || saved === undefined
-      ? Object.freeze({ ...DEFAULTS, highlightEnabled: storage?.getItem(LEGACY_KEY) !== "false" })
+      ? Object.freeze({ ...DEFAULTS, highlightEnabled: storage?.getItem(LEGACY_KEY) === "true" })
       : parse(saved);
   } catch {}
   const listeners = new Set();
@@ -93,6 +100,15 @@ const settings = createDisplaySettings();
 export const getDisplaySettings = settings.getSnapshot;
 export const setDisplaySettings = settings.update;
 export const subscribeDisplaySettings = settings.subscribe;
+
+export function updateScheme(theme, update) {
+  if (!["dark", "light"].includes(theme)) return;
+  settings.update((state) => ({ schemes: { ...state.schemes,
+    [theme]: normalizeScheme(update(getScheme(state, theme))) ?? getScheme(state, theme) } }));
+}
+export function resetScheme(theme) {
+  updateScheme(theme, () => defaultScheme(theme));
+}
 
 export function setDisplayColor(theme, key, color) {
   if (!["dark", "light"].includes(theme) || !Object.hasOwn(COLORS, key) || !/^#[0-9a-f]{6}$/i.test(color)) return;

@@ -1,7 +1,6 @@
 import { matchLogicalLine, readLogicalLine } from "./matcher.js";
 import { terminalTheme, resolveDisplayTheme, subscribeHostTheme } from "./theme.js";
-import { colorsForTheme, HIGHLIGHT_RULES } from "./rules.js";
-import { compileCustomRules } from "./custom-rules.js";
+import { compileScheme, getScheme } from "./scheme.js";
 import { getDisplaySettings, subscribeDisplaySettings } from "./settings.js";
 import { applyTerminalTheme } from "../terminal-theme.js";
 
@@ -65,21 +64,19 @@ export class OutputHighlightAddon {
     const settings = getDisplaySettings();
     if (!settings.highlightEnabled || buffer.type !== "normal") { this.clear(); return; }
     const theme = resolveDisplayTheme(settings.theme);
-    const colors = colorsForTheme(theme, settings.colors?.[theme]);
-    // Compile only when rules change, not for each row or write event.
-    if (this.customRules !== settings.customRules || this.builtinEnabled !== settings.builtinEnabled) {
-      this.customRules = settings.customRules;
-      this.builtinEnabled = settings.builtinEnabled;
-      this.rules = [...compileCustomRules(settings.customRules), ...(settings.builtinEnabled === false ? [] : HIGHLIGHT_RULES)];
+    if (this.settings !== settings || this.theme !== theme) {
+      this.settings = settings;
+      this.theme = theme;
+      this.compiled = compileScheme(getScheme(settings, theme));
     }
-    this.rules ??= HIGHLIGHT_RULES;
+    const { colors, rules } = this.compiled;
     const start = buffer.viewportY, end = Math.min(buffer.length, start + Math.min(term.rows, 200));
     const byRow = new Map();
     let y = start, backtrack = 0, count = 0;
     while (y > 0 && buffer.getLine(y)?.isWrapped && backtrack++ < 256) y--;
     while (y < end && count < MAX_DECORATIONS) {
       const logical = readLogicalLine(buffer, y);
-      for (const run of matchLogicalLine(logical, start, end, MAX_DECORATIONS - count, colors, this.rules)) {
+      for (const run of matchLogicalLine(logical, start, end, MAX_DECORATIONS - count, colors, rules)) {
         if (!byRow.has(run.y)) byRow.set(run.y, []);
         byRow.get(run.y).push(run);
         count++;

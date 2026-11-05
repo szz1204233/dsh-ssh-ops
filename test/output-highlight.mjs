@@ -228,3 +228,24 @@ test("stored custom rules reject invalid fields and remain bounded", () => {
   assert.equal(normalized[0].enabled, true);
   assert.equal(normalizeCustomRules(Array.from({ length: 100 }, (_, i) => ({ ...valid, id: String(i) }))).length, MAX_CUSTOM_RULES);
 });
+
+test("default schemes preserve semantic classification and category switches", async () => {
+  const { defaultScheme, compileScheme } = await import("../src/client/terminal-display/scheme.js");
+  const compiled = compileScheme(defaultScheme("dark"));
+  for (const text of ['"ERROR 123"', 'not successful', "can't be supported", '192.168.1.5', 'root@host:~$ cat /var/log | grep --color=auto "ERROR"', 'drwxr-xr-x user']) {
+    assert.deepEqual(matchText(text, compiled.rules, compiled.colors), matchText(text), text);
+  }
+  const disabled = compileScheme(defaultScheme("dark").map((entry) => ({ ...entry, enabled: false })));
+  assert.deepEqual(matchText('ERROR 42 "SUCCESS" 192.168.1.1', disabled.rules, disabled.colors), []);
+  const custom = compileScheme(defaultScheme("dark").map((entry) => entry.id === "error" ? { ...entry, text: "a+b\n业务失败", mode: "contains" } : entry));
+  assert.equal(matchText('a+b 业务失败', custom.rules, custom.colors).filter((span) => span.color === COLORS.error).length, 2);
+});
+
+test("scheme normalization validates entries and accepts multiline literal text", async () => {
+  const { defaultScheme, normalizeScheme, MAX_SCHEME_ENTRIES } = await import("../src/client/terminal-display/scheme.js");
+  const valid = { ...defaultScheme("dark")[0], text: "a+b\r\nERROR", color: "#ABCDEF" };
+  const normalized = normalizeScheme([valid, valid, { ...valid, id: "bad", color: "red" }, { ...valid, id: "long", text: "x".repeat(2049) }]);
+  assert.equal(normalized.length, 1);
+  assert.equal(normalized[0].text, "a+b\nERROR"); assert.equal(normalized[0].color, "#abcdef");
+  assert.equal(normalizeScheme(Array.from({ length: 100 }, (_, i) => ({ ...valid, id: `custom:${i}` }))).length, MAX_SCHEME_ENTRIES);
+});
