@@ -21,6 +21,8 @@ export const RELEASE_ARCHIVE_ENTRIES = [
   "README.en.md",
   "INSTALL.md",
   "LICENSE",
+  "THIRD_PARTY_NOTICES.md",
+  "licenses",
   "CHANGELOG.md"
 ];
 

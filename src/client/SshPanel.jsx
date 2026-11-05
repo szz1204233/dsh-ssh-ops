@@ -15,6 +15,10 @@ import * as React from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
+import { OutputHighlightAddon } from "./terminal-display/addon.js";
+import { TerminalDisplaySettings } from "./terminal-display/TerminalDisplaySettings.jsx";
+import { getDisplaySettings, subscribeDisplaySettings } from "./terminal-display/settings.js";
+import { terminalTheme } from "./terminal-display/theme.js";
 import { isMacPlatform, runFind, searchResultLabel, searchShortcutLabel, searchShortcutMatches } from "./terminal-search.js";
 import { XTERM_CSS } from "./xterm-css.js";
 import { useSshUi, sshUiSetActiveConnection, sshUiSetBusy, sshUiSetConnections, sshUiSetError, sshUiAnnounceAgentConnections } from "./store.js";
@@ -26,7 +30,7 @@ import { SshLogs } from "./SshLogs.jsx";
 import { privateKeyProblem } from "./pemkey.js";
 import { availableCommandSnippets, loadCommandSnippets, matchingCommandSnippets, saveCommandSnippets, searchCommandSnippets } from "./command-snippets.js";
 import { createTerminalPool } from "./terminal-pool.js";
-import { applyTerminalTheme, createTerminalThemeWatcher, getTerminalTheme } from "./terminal-theme.js";
+import { createTerminalThemeWatcher } from "./terminal-theme.js";
 import { clampFontSize, createWheelZoom, loadTerminalFontSize, saveTerminalFontSize } from "./terminal-zoom.js";
 import { TIER_ORDER, execPolicyLabel, execPolicyLooseningDetail } from "./exec-policy-ui.js";
 import {
@@ -168,7 +172,7 @@ const terminalPool = createTerminalPool({
       // Some remote commands produce LF-only text. Treat it as a normal
       // terminal newline so rows do not continue at the previous column.
       convertEol: true,
-      theme: getTerminalTheme()
+      theme: terminalTheme(getDisplaySettings().theme)
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -176,6 +180,7 @@ const terminalPool = createTerminalPool({
     // session's own history), so a view can be attached and detached freely.
     const search = new SearchAddon();
     term.loadAddon(search);
+    term.loadAddon(new OutputHighlightAddon());
     return { term, fit, search };
   },
   max: 8
@@ -186,10 +191,9 @@ let stopTerminalThemeWatcher = null;
 function ensureTerminalThemeWatcher() {
   if (stopTerminalThemeWatcher !== null || typeof document === "undefined") return;
   stopTerminalThemeWatcher = createTerminalThemeWatcher({
-    apply: (theme) => {
-      applyWorkspaceTheme(theme);
-      terminalPool.forEachTerm((term) => applyTerminalTheme(term, theme));
-    }
+    // Host changes only affect the surrounding UI. Each terminal follows
+    // the explicit display preference through its addon subscription.
+    apply: applyWorkspaceTheme
   });
 }
 
@@ -989,6 +993,8 @@ export function SshPanel({ api, credentials, viewId = DEFAULT_VIEW_ID, viewSigna
   const ui = useSshUi();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [tab, setTab] = useState("terminal");
+  const terminalDisplay = useSyncExternalStore(subscribeDisplaySettings, getDisplaySettings);
+  const terminalColors = terminalTheme(terminalDisplay.theme);
   const [batchTask, setBatchTask] = useState(null);
   const [pendingBatchCount, setPendingBatchCount] = useState(0);
   // Batch ids already surfaced this panel session. Dismissing the dialog (e.g.
@@ -1322,13 +1328,16 @@ export function SshPanel({ api, credentials, viewId = DEFAULT_VIEW_ID, viewSigna
           }}
           title={t("已录制的会话日志（可搜索、下载）")}
         >{t("日志")}</button>
+        <button type="button" onClick={() => setTab("display-settings")}
+          style={{ ...panelStyles.tab, ...(tab === "display-settings" ? panelStyles.tabActive : {}) }}
+        >{t("设置")}</button>
       </div>
 
       {!batchTask && pendingBatchCount > 0 && (
         <div style={panelStyles.batchNotice} onClick={openBatchTask}>{t(`⚡ ${pendingBatchCount} 个批量任务待处理，点击打开`)}</div>
       )}
 
-      <div style={panelStyles.body}>
+      <div style={{ ...panelStyles.body, ...(tab === "terminal" ? { background: terminalColors.background, color: terminalColors.foreground } : {}) }}>
         <TabErrorBoundary key="terminal">
           <div style={{ ...panelStyles.tabPane, display: tab === "terminal" ? "flex" : "none", position: "relative" }}>
             {active && <ExecPolicyPill api={api} connectionId={active.connectionId} />}
@@ -1387,6 +1396,11 @@ export function SshPanel({ api, credentials, viewId = DEFAULT_VIEW_ID, viewSigna
         <TabErrorBoundary key="database">
           <div style={{ ...panelStyles.tabPane, display: tab === "database" ? "flex" : "none" }}>
             <SshDatabase api={api} />
+          </div>
+        </TabErrorBoundary>
+        <TabErrorBoundary key="display-settings">
+          <div style={{ ...panelStyles.tabPane, display: tab === "display-settings" ? "flex" : "none" }}>
+            <TerminalDisplaySettings />
           </div>
         </TabErrorBoundary>
         <TabErrorBoundary key="logs">

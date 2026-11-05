@@ -36,15 +36,18 @@ It is not "a command line crammed into a chat box" — it is **two tracks runnin
 
 ## 3. Feature map
 
-Once installed, the right sidebar gains an **SSH tab** containing five sub-tabs:
+Once installed, the right sidebar gains an **SSH tab** containing six sub-tabs:
 
 | Sub-tab | What it does | Agent tools |
 | --- | --- | --- |
-| **Terminal** | Interactive PTY terminal: multiple tabs, light/dark theme following, scrollback buffer | `ssh_exec` / `ssh_read` / `ssh_write` |
+| **Terminal** | Interactive PTY terminal: multiple tabs, independent light/dark themes, semantic highlighting, scrollback buffer | `ssh_exec` / `ssh_read` / `ssh_write` |
 | **Files** | SFTP file manager: browse, upload/download, drag-and-drop, text editor | `sftp_*` (8 tools) |
 | **Tunnels** | Local / remote / SOCKS5 dynamic port forwarding with live status and stop | `tunnel_*` (3 tools) |
 | **Database** | Connect to databases, run SQL/commands, tabular results, CSV export | `db_*` (15 tools) |
 | **Logs** | Terminal session recording: preview, search, download, delete | `ssh_session_log_*` (3 tools) |
+| **Settings** | Terminal theme, highlight toggle and 11 custom colors stored per theme | None (local display settings) |
+
+The terminal defaults to dark with semantic highlighting enabled. SSH → Settings applies changes immediately to every connection and split pane, saves them in the current browser, and synchronizes same-origin windows. The terminal theme is independent of the DSH interface; remote styles take priority, and disabling highlighting keeps the selected theme. See [terminal display settings](./terminal-display.md).
 
 The companion **Settings → SSH Resources** page manages server assets (a first-class entry in the settings menu) with three segments: **Server groups**, **Shared SSH credentials**, and **AI command execution policy**.
 

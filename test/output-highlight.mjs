@@ -1,0 +1,206 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import xterm from "@xterm/xterm";
+import { matchText, readLogicalLine, matchLogicalLine } from "../src/client/terminal-display/matcher.js";
+import { COLORS } from "../src/client/terminal-display/rules.js";
+import { WINDTERM_DARK_THEME } from "../src/client/terminal-display/theme.js";
+import { OutputHighlightAddon } from "../src/client/terminal-display/addon.js";
+import { getDisplaySettings, setDisplaySettings } from "../src/client/terminal-display/settings.js";
+
+const write = (term, text) => new Promise((resolve) => term.write(text, resolve));
+function colorAt(text, target) {
+  const index = text.indexOf(target);
+  return matchText(text).find((s) => s.start <= index && s.end > index)?.color;
+}
+function visibleRuns(term) {
+  const buffer = term.buffer.active, runs = [];
+  for (let y = 0; y < buffer.length;) {
+    const logical = readLogicalLine(buffer, y);
+    runs.push(...matchLogicalLine(logical, 0, buffer.length));
+    y = logical.next;
+  }
+  return runs;
+}
+test("WindTerm keyword classifications and negative phrase precedence", () => {
+  for (const word of ["ERROR", "warning", "false", "denied", "FAILED", "FATAL"]) assert.equal(colorAt(word, word), COLORS.error);
+  for (const word of ["success", "SUCCEEDED", "true", "yes", "ok"]) assert.equal(colorAt(word, word), COLORS.success);
+  assert.equal(colorAt("not successful", "successful"), COLORS.error);
+  assert.equal(colorAt("can't be supported", "supported"), COLORS.error);
+  assert.equal(colorAt("debug sudo closed", "debug"), COLORS.warning);
+  assert.equal(colorAt("connection authentication", "connection"), COLORS.info);
+  assert.equal(colorAt("preFAILED unsuccessful", "preFAILED"), undefined);
+});
+test("opaque strings, dates, IPv4/IPv6 and MAC win over fragments", () => {
+  assert.equal(colorAt('"ERROR 123"', "ERROR"), COLORS.string);
+  for (const value of ["192.168.1.5", "2001:db8::1", "::1", "aa:bb:cc:dd:ee:ff", "2026-10-30T15:30:01Z", "12:30:15"]) {
+    const spans = matchText(value);
+    assert.deepEqual(spans, [{ start: 0, end: value.length, color: COLORS.heading }], value);
+  }
+  assert.notEqual(colorAt("999.2.3.4", "999"), COLORS.heading);
+  assert.notEqual(colorAt("2001:db8:123", "2001"), COLORS.heading);
+});
+test("prompt-only commands and paths, options, numbers and permission cells", () => {
+  const text = 'root@host:~$ sudo cat /var/error.log | grep --color=auto "ERROR"';
+  assert.equal(colorAt(text, "sudo"), COLORS.command);
+  assert.equal(colorAt(text, "grep"), COLORS.command);
+  assert.equal(colorAt(text, "/var/error.log"), COLORS.string);
+  assert.equal(colorAt(text, "--color"), COLORS.option);
+  assert.equal(colorAt(text, "auto"), COLORS.info);
+  assert.equal(colorAt('plain 42 3.14 0xCAFE', "42"), COLORS.number);
+  assert.equal(colorAt('CPU 85% Retry --timeout=30', "Retry"), undefined);
+  assert.equal(colorAt('CPU 85% Retry --timeout=30', "85%"), COLORS.number);
+  assert.equal(colorAt('host% cat /var/log', "cat"), COLORS.command);
+  assert.equal(colorAt('drwxr-xr-x user', "rwx"), COLORS.info);
+  assert.equal(colorAt('drwxr-xr-x user', "wx"), COLORS.warning);
+});
+test("real xterm preserves ANSI palette, truecolor and style, including mixed tokens", async () => {
+  const term = new xterm.Terminal({ cols: 100, rows: 5, allowProposedApi: true });
+  try {
+    await write(term, '\x1b[36mERROR\x1b[0m \x1b[38;2;1;2;3mSUCCESS\x1b[0m \x1b[3mWARN\x1b[0m ERROR');
+    const runs = visibleRuns(term);
+    assert.deepEqual(runs.map((r) => [r.x, r.width, r.foregroundColor]), [[19, 5, COLORS.error]]);
+    await write(term, '\r\x1b[2K\x1b[31mER\x1b[0mROR');
+    assert.deepEqual(visibleRuns(term).map((r) => [r.x, r.width]), [[2, 3]]);
+  } finally { term.dispose(); }
+});
+
+test("background, bold, underline, inverse and hidden cells keep remote attributes", async () => {
+  const term = new xterm.Terminal({ cols: 30, rows: 3, allowProposedApi: true });
+  try {
+    for (const sgr of ['41', '48;2;1;2;3', '1', '2', '4', '7', '8', '9']) {
+      await write(term, `\r\x1b[2K\x1b[${sgr}mERROR\x1b[0m ERROR`);
+      assert.deepEqual(visibleRuns(term).map((r) => [r.x, r.width]), [[6, 5]], `SGR ${sgr}`);
+    }
+  } finally { term.dispose(); }
+});
+test("real xterm automatic wraps, Chinese/emoji and hard newlines", async () => {
+  const term = new xterm.Terminal({ cols: 10, rows: 6, allowProposedApi: true });
+  try {
+    await write(term, '中文😀 ERROR');
+    const logical = readLogicalLine(term.buffer.active, 0);
+    assert.equal(logical.text.trimEnd(), '中文😀 ERROR');
+    // xterm's default Unicode provider renders this emoji as one cell; use
+    // its actual buffer widths rather than an external wcwidth assumption.
+    const runs = matchLogicalLine(logical, 0, 6).filter((r) => r.foregroundColor === COLORS.error);
+    assert.deepEqual(runs.map((r) => [r.x, r.y, r.width]), [[6, 0, 4], [0, 1, 1]]);
+    assert.deepEqual(matchLogicalLine(logical, 1, 2).map((r) => [r.x, r.y, r.width]), [[0, 1, 1]]);
+    await write(term, '\r\nER\r\nROR');
+    assert.equal(visibleRuns(term).filter((r) => r.foregroundColor === COLORS.error).length, 2);
+  } finally { term.dispose(); }
+});
+test("combining characters retain correct cell positions", async () => {
+  const term = new xterm.Terminal({ cols: 30, rows: 3, allowProposedApi: true });
+  try {
+    await write(term, 'e\u0301 ERROR');
+    assert.deepEqual(visibleRuns(term).map((r) => [r.x, r.width]), [[2, 5]]);
+  } finally { term.dispose(); }
+});
+
+test("wide glyph wrap padding is excluded without losing real spaces", async () => {
+  const term = new xterm.Terminal({ cols: 5, rows: 5, allowProposedApi: true });
+  try {
+    await write(term, '1234中ERROR');
+    const logical = readLogicalLine(term.buffer.active, 0);
+    assert.equal(logical.text.trimEnd(), '1234中ERROR');
+    assert.deepEqual(logical.positions[4], { x: 0, y: 1, width: 2, eligible: true });
+    await write(term, '\r\n123 中');
+    const spaced = readLogicalLine(term.buffer.active, 3);
+    assert.equal(spaced.text.trimEnd(), '123 中');
+  } finally { term.dispose(); }
+});
+test("row cache, CR overwrite, alternate buffer, global toggle and disposal", async () => {
+  setDisplaySettings({ highlightEnabled: true });
+  const term = new xterm.Terminal({ cols: 50, rows: 4, allowProposedApi: true });
+  const addon = new OutputHighlightAddon();
+  let creations = 0;
+  const register = term.registerDecoration.bind(term);
+  term.registerDecoration = (options) => { creations++; return register(options); };
+  term.loadAddon(addon);
+  try {
+    await write(term, 'ERROR 42 SUCCESS'); addon.scan();
+    assert.equal(term.options.theme.background, WINDTERM_DARK_THEME.background);
+    assert.equal(term.options.theme.red, WINDTERM_DARK_THEME.red);
+    const initial = creations;
+    addon.scan(); assert.equal(creations, initial);
+    assert.equal(addon.rows.length, 1);
+    await write(term, '\r\x1b[2Kplain'); addon.scan(); assert.equal(addon.rows.length, 0);
+    await write(term, '\r\x1b[2KERROR'); addon.scan();
+    await write(term, '\x1b[?1049hERROR'); addon.scan(); assert.equal(addon.rows.length, 0);
+    await write(term, '\x1b[?1049l'); addon.scan(); assert.equal(addon.rows.length, 1);
+    setDisplaySettings({ highlightEnabled: false }); assert.equal(addon.rows.length, 0);
+    setDisplaySettings({ highlightEnabled: true }); addon.scan(); assert.equal(addon.rows.length, 1);
+  } finally { term.dispose(); }
+  assert.equal(addon.rows.length, 0);
+});
+test("scrollback trimming and continuous output remain bounded", async () => {
+  const term = new xterm.Terminal({ cols: 80, rows: 20, scrollback: 30, allowProposedApi: true });
+  const addon = new OutputHighlightAddon(); term.loadAddon(addon);
+  try {
+    for (let i = 0; i < 10; i++) {
+      await write(term, ('2026-10-30 ERROR connection 192.168.1.2 retries=42\r\n').repeat(200)); addon.scan();
+      assert.ok(addon.rows.length <= term.rows);
+      assert.ok(term.markers.length <= term.rows);
+      assert.ok(addon.rows.reduce((n, r) => n + r.decorations.length, 0) <= 4096);
+    }
+  } finally { term.dispose(); }
+});
+
+test("unchanged visible rows reuse their decorations after scrollback trims", async () => {
+  const term = new xterm.Terminal({ cols: 30, rows: 4, scrollback: 3, allowProposedApi: true });
+  const addon = new OutputHighlightAddon(); term.loadAddon(addon);
+  try {
+    await write(term, 'ERROR 42\r\n'.repeat(8)); addon.scan();
+    const markers = new Set(addon.rows.map((row) => row.marker));
+    await write(term, 'ERROR 42\r\n'); addon.scan();
+    assert.ok(addon.rows.some((row) => markers.has(row.marker)), 'scrollback movement should not recreate every visible decoration');
+  } finally { term.dispose(); }
+});
+test("failed decoration API cleans marker and disables only the addon", async () => {
+  const original = getDisplaySettings();
+  const term = new xterm.Terminal({ cols: 30, rows: 3, allowProposedApi: true });
+  const addon = new OutputHighlightAddon();
+  term.registerDecoration = () => { throw Error('unsupported API'); };
+  term.loadAddon(addon);
+  try {
+    await write(term, 'ERROR');
+    await new Promise((resolve) => setTimeout(resolve, 90));
+    assert.equal(addon.failed, true);
+    assert.equal(term.markers.length, 0);
+    setDisplaySettings({ theme: "light" });
+    assert.equal(term.options.theme.background, "#ffffff", "theme updates survive a decoration failure");
+    addon.scan(); assert.equal(addon.rows.length, 0);
+    await write(term, '\r\nterminal still usable');
+    assert.equal(term.buffer.active.getLine(1).translateToString(true), 'terminal still usable');
+  } finally { term.dispose(); setDisplaySettings(original); }
+});
+
+test("resize, font zoom, scroll and disposal retain buffer content and release resources", async () => {
+  const term = new xterm.Terminal({ cols: 12, rows: 4, scrollback: 30, allowProposedApi: true });
+  const addon = new OutputHighlightAddon(); term.loadAddon(addon);
+  try {
+    await write(term, 'ERROR connection 42\r\nSUCCESS\r\nplain\r\nlast');
+    addon.scan();
+    const content = () => {
+      const buffer = term.buffer.active, lines = [];
+      for (let y = 0; y < buffer.length;) {
+        const logical = readLogicalLine(buffer, y);
+        lines.push(logical.text.trimEnd()); y = logical.next;
+      }
+      return lines.filter(Boolean).join('\n');
+    };
+    const before = content();
+    term.options.fontSize = 18;
+    term.resize(24, 4);
+    term.scrollToTop(); addon.scan();
+    assert.equal(content(), before);
+    for (const row of addon.rows) for (const decoration of row.decorations) {
+      assert.ok(decoration.options.x + decoration.options.width <= term.cols);
+    }
+    addon.dispose(); addon.dispose(); addon.scan(); addon.request();
+    assert.equal(term.markers.length, 0);
+    assert.equal(addon.timer, undefined);
+    assert.equal(content(), before);
+    await write(term, '\r\nstill usable');
+    assert.match(content(), /still usable$/);
+  } finally { term.dispose(); }
+});
