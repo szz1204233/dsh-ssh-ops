@@ -778,5 +778,9 @@ export const en = {
   "拖动排序；也可使用 Alt + 方向键": "Drag to reorder, or use Alt + arrow keys",
   "${label} 区分大小写": "${label} case sensitivity",
   "拖动左侧手柄可调整优先级；拖动时显示浮动预览与虚线占位，也可使用 Alt + 方向键。": "Drag the left handle to change priority; a floating preview and a dashed placeholder follow the pointer, or use Alt + arrow keys.",
+  "恢复默认配色方案确认": "Confirm restoring the default color scheme",
+  "将恢复当前主题的默认配色方案，当前修改会被覆盖。建议先备份。": "Restore this theme's default color scheme? Current edits will be overwritten — back up first if you want to keep them.",
+  "先备份": "Back up first",
+  "恢复默认": "Restore defaults",
   "每个标签是一个关键词或正则，无需 / 分隔符。Enter 添加，点击标签编辑，拖动左侧手柄调整优先级。": "Each tag is a keyword or regex without / delimiters. Press Enter to add, click a tag to edit, and drag its handle to change priority.",
 };

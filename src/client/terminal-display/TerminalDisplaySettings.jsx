@@ -49,7 +49,7 @@ const STYLES = `
 }
 @media (max-width: 720px) {
   .dsh-scheme-row { grid-template-columns: 28px minmax(0, 1fr) 34px 26px !important;
-    grid-template-areas: "grip name color del" "tags tags tags tags" "hex hex hex hex" !important; }
+    grid-template-areas: "grip name color del" "case case case case" "hex hex hex hex" "tags tags tags tags" !important; }
 }
 `;
 
@@ -57,36 +57,40 @@ function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePoint
   const [hex, setHex] = React.useState(entry.color);
   const toggleId = React.useId();
   React.useEffect(() => setHex(entry.color), [entry.color]);
+  // Every control in the first row shares the same box height so the row reads
+  // as one strip instead of four differently sized widgets.
+  const control = { height: 30, boxSizing: "border-box" };
   return <div ref={rowRef} className="dsh-scheme-row" data-scheme-id={entry.id} data-drag-source={dragging ? "true" : undefined}
     aria-grabbed={dragging ? "true" : undefined}
-    style={{ display: "grid", width: "100%",
-    gridTemplateColumns: "28px minmax(140px, 190px) 34px 84px 26px minmax(0, 1fr)",
-    gridTemplateAreas: '"grip name color hex del del" "tags tags tags tags tags tags"', columnGap: 8, rowGap: 6, alignItems: "start",
-    padding: "10px 6px 10px 2px", borderBottom: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
+    style={{ display: "grid", width: "100%", boxSizing: "border-box",
+      gridTemplateColumns: "28px minmax(120px, 220px) 34px 84px auto 26px minmax(0, 1fr)",
+      gridTemplateAreas: '"grip name color hex case del rest" "tags tags tags tags tags tags tags"',
+      columnGap: 8, rowGap: 6, alignItems: "center",
+      padding: "10px 6px 10px 2px", borderBottom: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
     <button type="button" data-drag-handle className="dsh-drag-handle" aria-label={t(`拖动排序 ${label}`)} title={t("拖动排序；也可使用 Alt + 方向键")}
       onPointerDown={onHandlePointerDown}
       onKeyDown={(event) => { if (event.altKey && ["ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); onKeyboardMove(event.key === "ArrowUp" ? -1 : 1); } }}
       style={{ gridArea: "grip" }}>
       <svg width="14" height="16" viewBox="0 0 14 16" fill="currentColor" aria-hidden="true"><circle cx="4" cy="4" r="1"/><circle cx="10" cy="4" r="1"/><circle cx="4" cy="8" r="1"/><circle cx="10" cy="8" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="10" cy="12" r="1"/></svg>
     </button>
-    <div style={{ gridArea: "name", display: "flex", flexDirection: "column", gap: 5, minWidth: 0 }}>
-      <div style={{ display: "flex", alignItems: "center", gap: 6, minWidth: 0 }}>
-        <input id={toggleId} type="checkbox" checked={entry.enabled} aria-label={t(`启用 ${label}`)} onChange={(event) => onChange({ enabled: event.target.checked })} />
-        {onDelete
-          ? <input aria-label={t("配色项名称")} value={entry.name} placeholder={t("自定义配色项")} maxLength={80} onChange={(event) => onChange({ name: event.target.value })} style={{ ...field, width: "100%", padding: "3px 4px" }} />
-          : <label htmlFor={toggleId} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</label>}
-      </div>
-      <button type="button" disabled={!entry.enabled} aria-label={t(`${label} 区分大小写`)} aria-pressed={entry.caseSensitive} title={t("区分大小写")}
-        onClick={() => onChange({ caseSensitive: !entry.caseSensitive })}
-        style={{ ...button, alignSelf: "flex-start", padding: "0 5px", lineHeight: "18px", opacity: entry.caseSensitive ? 1 : 0.55 }}>Aa</button>
+    <div style={{ gridArea: "name", display: "flex", alignItems: "center", gap: 6, minWidth: 0, height: 30 }}>
+      <input id={toggleId} type="checkbox" checked={entry.enabled} aria-label={t(`启用 ${label}`)} onChange={(event) => onChange({ enabled: event.target.checked })} />
+      {onDelete
+        ? <input aria-label={t("配色项名称")} value={entry.name} placeholder={t("自定义配色项")} maxLength={80} onChange={(event) => onChange({ name: event.target.value })} style={{ ...field, ...control, width: "100%", padding: "0 6px" }} />
+        : <label htmlFor={toggleId} style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</label>}
     </div>
     <input type="color" aria-label={label} value={entry.color} disabled={!entry.enabled} onChange={(event) => onChange({ color: event.target.value })}
-      style={{ gridArea: "color", width: 34, height: 30, padding: 2, background: "transparent", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 4 }} />
+      style={{ ...control, gridArea: "color", width: 34, padding: 2, background: "transparent", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 4 }} />
     <input aria-label={label + " HEX"} value={hex} disabled={!entry.enabled} maxLength={7} spellCheck={false}
       onChange={(event) => { setHex(event.target.value); if (/^#[0-9a-f]{6}$/i.test(event.target.value)) onChange({ color: event.target.value }); }} onBlur={() => setHex(entry.color)}
-      style={{ ...field, gridArea: "hex", width: 84, padding: "6px", fontFamily: "monospace" }} />
+      style={{ ...field, ...control, gridArea: "hex", width: 84, padding: "0 6px", fontFamily: "monospace" }} />
+    <button type="button" disabled={!entry.enabled} aria-label={t(`${label} 区分大小写`)} aria-pressed={entry.caseSensitive} title={t("区分大小写")}
+      onClick={() => onChange({ caseSensitive: !entry.caseSensitive })}
+      style={{ ...button, ...control, gridArea: "case", display: "inline-flex", alignItems: "center", gap: 4, padding: "0 8px", whiteSpace: "nowrap", fontSize: 11, lineHeight: 1, opacity: entry.caseSensitive ? 1 : 0.55 }}>
+      <span aria-hidden="true" style={{ fontFamily: "monospace", fontWeight: 600 }}>Aa</span>{t("区分大小写")}
+    </button>
     {onDelete
-      ? <button type="button" style={{ ...button, gridArea: "del", justifySelf: "end", border: 0, padding: "5px 2px", alignSelf: "start" }} aria-label={t(`删除配色项 ${label}`)} title={t(`删除配色项 ${label}`)} onClick={onDelete}>×</button>
+      ? <button type="button" style={{ ...button, gridArea: "del", justifySelf: "end", border: 0, padding: "0 2px", height: 30 }} aria-label={t(`删除配色项 ${label}`)} title={t(`删除配色项 ${label}`)} onClick={onDelete}>×</button>
       : <span style={{ gridArea: "del" }} />}
     <div style={{ gridArea: "tags", display: "flex", gap: 6, alignItems: "flex-start", minWidth: 0 }}>
       <div style={{ flex: 1, minWidth: 0 }}><PatternTags label={label} text={entry.text} disabled={!entry.enabled} onChange={(text) => onChange({ text, mode: "regex" })} /></div>
@@ -100,7 +104,13 @@ export function TerminalDisplaySettings() {
   React.useSyncExternalStore(subscribeHostTheme, getHostTheme);
   const [preview, setPreview] = React.useState(PREVIEW_TEXT);
   const [backupStatus, setBackupStatus] = React.useState(false);
+  const [confirmReset, setConfirmReset] = React.useState(false);
   const [dragId, setDragId] = React.useState(null);
+  React.useEffect(() => {
+    if (!backupStatus) return undefined;
+    const timer = setTimeout(() => setBackupStatus(false), 4000);
+    return () => clearTimeout(timer);
+  }, [backupStatus]);
   const radioName = React.useId(), resolved = resolveDisplayTheme(settings.theme);
   const entries = React.useMemo(() => getScheme(settings, resolved), [settings, resolved]);
   const listRef = React.useRef(null);
@@ -298,7 +308,7 @@ export function TerminalDisplaySettings() {
     <fieldset style={{ border: 0, padding: 0, margin: "0 0 8px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 18px" }}>
       <legend style={{ float: "left", fontSize: 12, color: "var(--dsh-ssh-ops-muted, #8b93a1)", marginRight: 2 }}>{t("终端主题")}</legend>
       {[["system", t("跟随 DSH")], ["dark", t("深色")], ["light", t("浅色")]].map(([value, label]) => <label key={value} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12 }}>
-        <input type="radio" name={radioName} value={value} checked={settings.theme === value} onChange={() => { setDisplaySettings({ theme: value }); setBackupStatus(false); }} />{label}
+        <input type="radio" name={radioName} value={value} checked={settings.theme === value} onChange={() => { setDisplaySettings({ theme: value }); setBackupStatus(false); setConfirmReset(false); }} />{label}
       </label>)}
       <span aria-hidden="true" style={{ width: 1, height: 15, background: "var(--dsh-ssh-ops-border, #3a414b)" }} />
       <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
@@ -308,13 +318,21 @@ export function TerminalDisplaySettings() {
     {settings.highlightEnabled && <>
       <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "16px 0 8px" }}>
         <h4 style={{ fontSize: 13, margin: 0, marginRight: "auto" }}>{t("配色方案")}</h4>
-        <button type="button" style={button} onClick={() => resetScheme(resolved)}>{t("恢复当前主题默认配色方案")}</button>
+        <button type="button" style={button} onClick={() => setConfirmReset(true)}>{t("恢复当前主题默认配色方案")}</button>
         <button type="button" style={button} onClick={backup}>{t("备份当前配色方案")}</button>
       </div>
-      {backupStatus && <div role="status" style={{ fontSize: 11, marginBottom: 6 }}>{t("已导出当前主题配色方案（JSON）。")}</div>}
+      {confirmReset && <div role="alertdialog" aria-label={t("恢复默认配色方案确认")}
+        style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "0 0 8px", padding: "8px 10px",
+          border: "1px solid #2d6cdf", borderRadius: 8, background: "rgba(45,108,223,.08)", fontSize: 12 }}>
+        <span style={{ flex: "1 1 260px", lineHeight: 1.5 }}>{t("将恢复当前主题的默认配色方案，当前修改会被覆盖。建议先备份。")}</span>
+        <button type="button" style={button} onClick={backup}>{t("先备份")}</button>
+        <button type="button" style={{ ...button, borderColor: "#2d6cdf", color: "#2d6cdf" }} onClick={() => { resetScheme(resolved); setConfirmReset(false); }}>{t("恢复默认")}</button>
+        <button type="button" style={button} onClick={() => setConfirmReset(false)}>{t("取消")}</button>
+      </div>}
+      {backupStatus && <div role="status" style={{ fontSize: 11, marginBottom: 6, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("已导出当前主题配色方案（JSON）。")}</div>}
       <p style={{ fontSize: 11, lineHeight: 1.6, margin: "0 0 8px", color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{resolved === "light" ? t("正在编辑浅色主题。") : t("正在编辑深色主题。")}{" "}{t("拖动左侧手柄可调整优先级；拖动时显示浮动预览与虚线占位，也可使用 Alt + 方向键。")}</p>
       <div ref={listRef} className="dsh-scheme-list" onClickCapture={onListClickCapture}
-        style={{ overflowY: "auto", minHeight: 140, maxHeight: "min(40vh, 380px)", paddingRight: 6, borderTop: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
+        style={{ overflowY: "auto", overflowX: "hidden", minHeight: 140, maxHeight: "min(40vh, 380px)", paddingRight: 6, borderTop: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
         {entries.map((entry) => {
           const custom = !Object.hasOwn(labels, entry.id), label = custom ? (entry.name || t("自定义配色项")) : labels[entry.id];
           return <SchemeEntry key={`${resolved}:${entry.id}`} entry={entry} label={label} dragging={dragId === entry.id}
