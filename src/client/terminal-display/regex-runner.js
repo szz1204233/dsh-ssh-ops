@@ -14,18 +14,51 @@ function browserWorker() {
 }
 
 // One serial worker shared by terminals and the preview. Coalesce queued work
-// per owner; a timeout retires the worker and quarantines only that scheme.
-export function createRegexRunner({ createWorker = browserWorker, timeoutMs = 150, startupMs = 2500 } = {}) {
+// per owner; a timeout retires the worker and quarantines only that scheme,
+// and the quarantine expires so editing a scheme (or simply waiting) recovers
+// without a page reload.
+export function createRegexRunner({ createWorker = browserWorker, timeoutMs = 150, startupMs = 2500, quarantineMs = 30_000, now = Date.now } = {}) {
   let worker, ready = false, active, timer, nextId = 0, references = 0;
-  const queue = [], blocked = new Set();
+  // A released owner can leave its job running inside the worker. Until that
+  // job returns (or is presumed stuck) the shared worker stays warm for the
+  // other terminals instead of being restarted, but a watchdog must still
+  // recycle it if a catastrophic scheme wedges the thread forever.
+  let abandoned;
+  const queue = [], blocked = new Map();
   const retire = () => { clearTimeout(timer); const old = worker; worker = undefined; ready = false; old?.terminate(); };
+  const clearAbandoned = () => { if (abandoned) { clearTimeout(abandoned.timer); abandoned = undefined; } };
+  const isBlocked = (signature) => {
+    const expiresAt = blocked.get(signature);
+    if (expiresAt === undefined) return false;
+    if (expiresAt > now()) return true;
+    blocked.delete(signature);
+    return false;
+  };
+  const quarantine = (signature) => {
+    if (blocked.size >= 32 && !blocked.has(signature)) blocked.delete(blocked.keys().next().value);
+    blocked.set(signature, now() + quarantineMs);
+  };
   const settle = (value) => {
     clearTimeout(timer);
     const job = active; active = undefined;
     job?.resolve(value);
     pump();
   };
+  /**
+   * A worker that never answered is presumed wedged inside `signature`: blame
+   * that scheme, restart the worker and re-run the job that was waiting on it
+   * (its scheme is innocent — it never got a chance to run).
+   */
+  const recycle = (signature) => {
+    if (signature) quarantine(signature);
+    clearAbandoned();
+    const requeue = active; active = undefined;
+    retire();
+    if (requeue) queue.unshift(requeue);
+    pump();
+  };
   const fail = (error) => {
+    clearAbandoned();
     retire();
     if (active) settle({ error });
     else { queue.shift()?.resolve({ error }); pump(); }
@@ -38,6 +71,9 @@ export function createRegexRunner({ createWorker = browserWorker, timeoutMs = 15
         worker.onmessage = ({ data }) => {
           if (worker !== created) return;
           if (data.ready) { clearTimeout(timer); ready = true; pump(); return; }
+          // A late reply from a released owner's job cancels its watchdog: the
+          // worker is alive and no longer stuck.
+          if (abandoned && data.id === abandoned.id) clearAbandoned();
           if (active && data.id === active.id) settle(data);
         };
         worker.onerror = () => { if (worker === created) fail("worker-unavailable"); };
@@ -47,11 +83,12 @@ export function createRegexRunner({ createWorker = browserWorker, timeoutMs = 15
     }
     if (!ready) return;
     active = queue.shift();
-    if (blocked.has(active.signature)) { settle({ error: "regex-timeout" }); return; }
+    if (isBlocked(active.signature)) { settle({ error: "regex-timeout" }); return; }
     const signature = active.signature;
     timer = setTimeout(() => {
-      if (blocked.size >= 32) blocked.delete(blocked.values().next().value);
-      blocked.add(signature); fail("regex-timeout");
+      if (abandoned) { recycle(abandoned.signature); return; }
+      quarantine(signature);
+      fail("regex-timeout");
     }, timeoutMs);
     try { worker.postMessage({ id: active.id, entries: active.entries, texts: active.texts }); }
     catch { fail("worker-unavailable"); }
@@ -65,7 +102,7 @@ export function createRegexRunner({ createWorker = browserWorker, timeoutMs = 15
         match(entries, texts) {
           if (released) return Promise.resolve({ cancelled: true });
           const signature = JSON.stringify(entries);
-          if (blocked.has(signature)) return Promise.resolve({ error: "regex-timeout" });
+          if (isBlocked(signature)) return Promise.resolve({ error: "regex-timeout" });
           for (let i = queue.length - 1; i >= 0; i--) {
             if (queue[i].owner === owner) { queue[i].resolve({ cancelled: true }); queue.splice(i, 1); }
           }
@@ -75,13 +112,31 @@ export function createRegexRunner({ createWorker = browserWorker, timeoutMs = 15
             queue.push({ id: ++nextId, owner, signature, entries, texts, resolve: done }); pump();
           });
         },
+        clearQuarantine() { blocked.clear(); },
         release() {
           if (released) return;
           released = true;
           for (let i = queue.length - 1; i >= 0; i--) if (queue[i].owner === owner) queue.splice(i, 1);
           for (const resolve of [...owned]) resolve({ cancelled: true });
-          if (active?.owner === owner) { retire(); active = undefined; }
-          if (--references === 0) { retire(); blocked.clear(); }
+          // Do not retire the process-wide worker just because this owner is
+          // going away: other terminals (and the settings preview) still use
+          // it, and a restart would stall their next scan. The in-flight job is
+          // abandoned; its late reply is ignored. The watchdog below recycles
+          // the worker if the abandoned scheme turns out to be stuck.
+          if (active?.owner === owner) {
+            const job = active;
+            active = undefined;
+            clearTimeout(timer);
+            const watch = { id: job.id, signature: job.signature };
+            watch.timer = setTimeout(() => {
+              if (abandoned !== watch) return;
+              abandoned = undefined;
+              recycle(watch.signature);
+            }, timeoutMs);
+            watch.timer?.unref?.();
+            abandoned = watch;
+          }
+          if (--references === 0) { clearAbandoned(); retire(); blocked.clear(); }
           else pump();
         }
       };
