@@ -56,12 +56,12 @@ const STYLES = `
   background: transparent; color: var(--dsh-ssh-ops-muted, #8b93a1); cursor: grab; touch-action: none; }
 .dsh-drag-handle:hover, .dsh-drag-handle:focus-visible { background: color-mix(in srgb, var(--dsh-ssh-ops-text, #d7dbe2) 10%, transparent); color: var(--dsh-ssh-ops-text, #d7dbe2); }
 .dsh-drag-handle:active, .dsh-scheme-list[data-dragging="true"] .dsh-drag-handle { cursor: grabbing; }
-.dsh-scheme-ghost { position: fixed; z-index: 2147483000; pointer-events: none; opacity: .97; overflow: hidden;
+.dsh-scheme-ghost { position: fixed; z-index: 2147483000; pointer-events: none; opacity: .97;
   background: var(--dsh-ssh-ops-surface, #161b21); color: var(--dsh-ssh-ops-text, #d7dbe2);
   border: 1px solid #2d6cdf; border-radius: 8px;
   box-shadow: 0 18px 40px rgba(0,0,0,.38), 0 2px 8px rgba(0,0,0,.24);
-  transform: rotate(-1.5deg) scale(1.012); animation: dsh-ghost-in .16s cubic-bezier(.22,.61,.36,1); will-change: transform, left, top; }
-@keyframes dsh-ghost-in { from { transform: rotate(0) scale(1); box-shadow: 0 2px 8px rgba(0,0,0,.2); } }
+  animation: dsh-ghost-in .16s cubic-bezier(.22,.61,.36,1); will-change: left, top; }
+@keyframes dsh-ghost-in { from { opacity: 0; box-shadow: 0 2px 8px rgba(0,0,0,.2); } }
 .dsh-drop-indicator { position: absolute; top: 0; left: 0; right: 0; height: 2px; margin-top: -1px; border-radius: 2px;
   background: #2d6cdf; box-shadow: 0 0 0 1px color-mix(in srgb, rgba(45,108,223,.30));
   pointer-events: none; display: none; will-change: transform; }
@@ -135,7 +135,7 @@ function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePoint
       gridTemplateAreas: '"grip name color hex case del rest" "tags tags tags tags tags tags tags"',
       columnGap: 8, rowGap: 6, alignItems: "center",
       padding: "10px 6px 10px 2px", borderBottom: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
-    <button type="button" data-drag-handle className="dsh-drag-handle" aria-label={t(`拖动排序 ${label}`)} title={t("拖动排序；也可使用 Alt + 方向键")}
+    <button type="button" data-drag-handle className="dsh-drag-handle" aria-label={t(`拖动排序 ${label}`)} title={t("拖动排序")}
       onPointerDown={onHandlePointerDown}
       onKeyDown={(event) => { if (event.altKey && ["ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); onKeyboardMove(event.key === "ArrowUp" ? -1 : 1); } }}
       style={{ gridArea: "grip" }}>
@@ -403,8 +403,8 @@ export function TerminalDisplaySettings() {
     const fromLeft = Number.parseFloat(ghost.style.left) || 0;
     const fromTop = Number.parseFloat(ghost.style.top) || 0;
     const animation = ghost.animate([
-      { transform: "rotate(-1.5deg) scale(1.012)", opacity: 0.92 },
-      { transform: `translate(${to.left - fromLeft}px, ${to.top - fromTop}px) rotate(0) scale(1)`, opacity: 1 }
+      { transform: "translate(0, 0)", opacity: 0.92 },
+      { transform: `translate(${to.left - fromLeft}px, ${to.top - fromTop}px)`, opacity: 1 }
     ], { duration: 220, easing: "cubic-bezier(.22,.61,.36,1)" });
     try { await animation.finished; } catch { /* interrupted */ }
     ghost.remove();
@@ -476,7 +476,7 @@ export function TerminalDisplaySettings() {
         still saved, so disabling is both calmer and more honest. */}
     <fieldset disabled={!settings.highlightEnabled} className="dsh-scheme-fieldset" style={{ display: "contents" }}>
       <div className="dsh-scheme-fill" style={{ opacity: settings.highlightEnabled ? 1 : 0.55, transition: "opacity .15s ease" }}>
-      <p style={{ fontSize: 11, lineHeight: 1.6, margin: "0 0 8px", flexShrink: 0, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("拖动左侧手柄排序（Alt + ↑/↓）。")}</p>
+      <p style={{ fontSize: 11, lineHeight: 1.6, margin: "0 0 8px", flexShrink: 0, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("拖动左侧手柄排序，点击标签编辑。")}</p>
       <div ref={listRef} className="dsh-scheme-list" onClickCapture={onListClickCapture}
         style={{ paddingRight: 6, borderTop: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
         {entries.map((entry) => {
@@ -493,7 +493,6 @@ export function TerminalDisplaySettings() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10, flexShrink: 0 }}>
         <button type="button" disabled={entries.length >= MAX_SCHEME_ENTRIES || Boolean(pendingEntry)} style={{ ...button, marginTop: 0 }}
           title={pendingEntry ? t("先填写新建的配色项") : undefined} onClick={addEntry}>{t("添加配色项")}</button>
-        <span style={{ fontSize: 11, lineHeight: 1.5, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("每个标签是一个关键词或正则。Enter 添加，点击标签编辑。")}</span>
       </div>
       </div>
     </fieldset>
