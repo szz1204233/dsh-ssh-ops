@@ -7,8 +7,7 @@ import { getScheme, exportScheme, MAX_SCHEME_ENTRIES } from "./scheme.js";
 import { EditablePreview } from "./EditablePreview.jsx";
 import { PatternTags } from "./PatternTags.jsx";
 import { dropSlot, dropIndex, previewShifts, insertionOffset } from "./drag-order.js";
-
-const PREVIEW_TEXT = 'demo@host:~$ cat --lines=42 /var/log/app.log\n2026-10-30 12:30:15 ERROR connection refused\nSUCCESS service started 192.168.1.10\ndebug retries=42 "text"\ndrwxr-xr-x demo logs';
+import { DEFAULT_PREVIEW_TEXT } from "./preview-text.js";
 const button = { padding: "5px 8px", borderRadius: 5, cursor: "pointer", fontSize: 12, color: "inherit", background: "transparent", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)" };
 const field = { boxSizing: "border-box", minWidth: 0, padding: "6px 8px", borderRadius: 5, fontSize: 12, color: "inherit",
   background: "var(--dsh-ssh-ops-input, #101418)", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)" };
@@ -52,6 +51,15 @@ const STYLES = `
   font-size: 11px; cursor: pointer; white-space: nowrap; }
 .dsh-case-toggle[aria-pressed="true"] { background: #2d6cdf; border-color: #2d6cdf; color: #fff; }
 .dsh-case-toggle:disabled { cursor: not-allowed; opacity: .5; }
+.dsh-theme-badge { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: 999px; white-space: nowrap;
+  border: 1px solid var(--dsh-ssh-ops-border, #3a414b); color: var(--dsh-ssh-ops-muted, #8b93a1); font-size: 11px; line-height: 1.7; }
+.dsh-theme-dot { width: 8px; height: 8px; flex: none; border-radius: 50%; border-width: 1px; border-style: solid; }
+.dsh-export-toast { position: absolute; right: 0; top: calc(100% + 6px); z-index: 41; width: max-content; max-width: min(340px, 60vw); padding: 6px 10px;
+  font-size: 11px; line-height: 1.5; color: var(--dsh-ssh-ops-text, #d7dbe2); background: var(--dsh-ssh-ops-surface, #161b21);
+  border: 1px solid #2d6cdf; border-radius: 7px; box-shadow: 0 10px 30px rgba(0,0,0,.28);
+  pointer-events: none; animation: dsh-toast-in .16s ease-out; }
+@keyframes dsh-toast-in { from { opacity: 0; transform: translateY(-4px); } }
+.dsh-scheme-fieldset:disabled input, .dsh-scheme-fieldset:disabled button { cursor: not-allowed; }
 .dsh-reset-popover { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: min(440px, 100%);
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; font-size: 12px;
   background: var(--dsh-ssh-ops-surface, #161b21); border: 1px solid #2d6cdf; border-radius: 8px;
@@ -60,6 +68,7 @@ const STYLES = `
 @media (prefers-reduced-motion: reduce) {
   .dsh-scheme-row { transition: none; }
   .dsh-scheme-ghost { animation: none; transform: none; }
+  .dsh-export-toast { animation: none; }
 }
 @media (max-width: 720px) {
   .dsh-scheme-row { grid-template-columns: 28px minmax(0, 1fr) 34px 26px !important;
@@ -116,16 +125,18 @@ export function TerminalDisplaySettings() {
   useLanguage();
   const settings = React.useSyncExternalStore(subscribeDisplaySettings, getDisplaySettings);
   React.useSyncExternalStore(subscribeHostTheme, getHostTheme);
-  const [preview, setPreview] = React.useState(PREVIEW_TEXT);
-  const [backupStatus, setBackupStatus] = React.useState(false);
+  const [preview, setPreview] = React.useState(DEFAULT_PREVIEW_TEXT);
+  const [exported, setExported] = React.useState(false);
   const [confirmReset, setConfirmReset] = React.useState(false);
   const [dragId, setDragId] = React.useState(null);
-  React.useEffect(() => {
-    if (!backupStatus) return undefined;
-    const timer = setTimeout(() => setBackupStatus(false), 4000);
-    return () => clearTimeout(timer);
-  }, [backupStatus]);
-  const radioName = React.useId(), resolved = resolveDisplayTheme(settings.theme);
+  const exportTimer = React.useRef(null);
+  const showExported = () => {
+    setExported(true);
+    clearTimeout(exportTimer.current);
+    exportTimer.current = setTimeout(() => setExported(false), 3200);
+  };
+  React.useEffect(() => () => clearTimeout(exportTimer.current), []);
+  const radioName = React.useId(), resolved = resolveDisplayTheme(settings.theme), activeTheme = terminalTheme(settings.theme);
   const entries = React.useMemo(() => getScheme(settings, resolved), [settings, resolved]);
   const listRef = React.useRef(null);
   const rows = React.useRef(new Map());
@@ -149,7 +160,7 @@ export function TerminalDisplaySettings() {
     link.download = `dsh-ssh-ops-${resolved}-scheme-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
     document.body.appendChild(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setBackupStatus(true);
+    showExported();
   };
 
   const resetRef = React.useRef(null);
@@ -369,19 +380,31 @@ export function TerminalDisplaySettings() {
     <fieldset style={{ border: 0, padding: 0, margin: "0 0 8px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 18px" }}>
       <legend style={{ float: "left", fontSize: 12, color: "var(--dsh-ssh-ops-muted, #8b93a1)", marginRight: 2 }}>{t("终端主题")}</legend>
       {[["system", t("跟随 DSH")], ["dark", t("深色")], ["light", t("浅色")]].map(([value, label]) => <label key={value} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12 }}>
-        <input type="radio" name={radioName} value={value} checked={settings.theme === value} onChange={() => { setDisplaySettings({ theme: value }); setBackupStatus(false); setConfirmReset(false); }} />{label}
+        <input type="radio" name={radioName} value={value} checked={settings.theme === value} onChange={() => { setDisplaySettings({ theme: value }); setExported(false); setConfirmReset(false); }} />{label}
       </label>)}
       <span aria-hidden="true" style={{ width: 1, height: 15, background: "var(--dsh-ssh-ops-border, #3a414b)" }} />
       <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
-        <input type="checkbox" checked={settings.highlightEnabled} onChange={(event) => setDisplaySettings({ highlightEnabled: event.target.checked })} />{t("启用语义高亮")}
+        <input type="checkbox" checked={settings.highlightEnabled} onChange={(event) => { setDisplaySettings({ highlightEnabled: event.target.checked }); setConfirmReset(false); setExported(false); }} />{t("启用语义高亮")}
       </label>
     </fieldset>
-    {settings.highlightEnabled && <>
+    {/* Stays mounted and greys out when highlighting is off. Hiding the block
+        made the dialog jump on every toggle and hid configuration that is
+        still saved, so disabling is both calmer and more honest. */}
+    <fieldset disabled={!settings.highlightEnabled} className="dsh-scheme-fieldset"
+      style={{ border: 0, padding: 0, margin: 0, minWidth: 0, width: "100%", display: "flex", flexDirection: "column",
+        opacity: settings.highlightEnabled ? 1 : 0.55, transition: "opacity .15s ease" }}>
       <div style={{ position: "relative", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "16px 0 8px" }}>
-        <h4 style={{ fontSize: 13, margin: 0, marginRight: "auto" }}>{t("配色方案")}</h4>
+        <h4 style={{ fontSize: 13, margin: 0 }}>{t("配色方案")}</h4>
+        <span className="dsh-theme-badge" style={{ marginRight: "auto" }}>
+          <span aria-hidden="true" className="dsh-theme-dot" style={{ background: activeTheme.background, borderColor: activeTheme.foreground }} />
+          {resolved === "light" ? t("浅色主题") : t("深色主题")}
+        </span>
         <button ref={resetRef} type="button" style={button} aria-expanded={confirmReset} aria-haspopup="dialog"
           onClick={() => setConfirmReset((open) => !open)}>{t("恢复当前主题默认配色方案")}</button>
-        <button type="button" style={button} onClick={backup}>{t("备份当前配色方案")}</button>
+        <span style={{ position: "relative", display: "inline-flex" }}>
+          <button type="button" style={button} onClick={backup}>{t("备份当前配色方案")}</button>
+          {exported && <span className="dsh-export-toast" role="status" aria-live="polite">{t("已导出当前主题配色方案（JSON）。")}</span>}
+        </span>
         {confirmReset && <div ref={confirmRef} className="dsh-reset-popover" role="alertdialog" aria-label={t("恢复默认配色方案确认")}>
           <span style={{ flex: "1 1 200px", lineHeight: 1.5 }}>{t("将恢复当前主题的默认配色方案，当前修改会被覆盖。建议先备份。")}</span>
           <button type="button" style={button} onClick={backup}>{t("先备份")}</button>
@@ -389,8 +412,7 @@ export function TerminalDisplaySettings() {
           <button type="button" style={button} onClick={() => setConfirmReset(false)}>{t("取消")}</button>
         </div>}
       </div>
-      {backupStatus && <div role="status" style={{ fontSize: 11, marginBottom: 6, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("已导出当前主题配色方案（JSON）。")}</div>}
-      <p style={{ fontSize: 11, lineHeight: 1.6, margin: "0 0 8px", color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{resolved === "light" ? t("正在编辑浅色主题。") : t("正在编辑深色主题。")}{" "}{t("拖动左侧手柄可调整优先级；拖动时显示浮动预览与虚线占位，也可使用 Alt + 方向键。")}</p>
+      <p style={{ fontSize: 11, lineHeight: 1.6, margin: "0 0 8px", color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("拖动左侧手柄排序（Alt + ↑/↓）。")}</p>
       <div ref={listRef} className="dsh-scheme-list" onClickCapture={onListClickCapture}
         style={{ overflowY: "auto", overflowX: "hidden", minHeight: 140, maxHeight: "min(40vh, 380px)", paddingRight: 6, borderTop: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
         {entries.map((entry) => {
@@ -407,10 +429,11 @@ export function TerminalDisplaySettings() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10 }}>
         <button type="button" disabled={entries.length >= MAX_SCHEME_ENTRIES || Boolean(pendingEntry)} style={{ ...button, marginTop: 0 }}
           title={pendingEntry ? t("先填写新建的配色项") : undefined} onClick={addEntry}>{t("添加配色项")}</button>
-        <span style={{ fontSize: 11, lineHeight: 1.5, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("每个标签是一个关键词或正则，无需 / 分隔符。Enter 添加，点击标签编辑，拖动左侧手柄调整优先级。")}</span>
+        <span style={{ fontSize: 11, lineHeight: 1.5, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("每个标签是一个关键词或正则。Enter 添加，点击标签编辑。")}</span>
       </div>
       <div style={{ fontSize: 12, margin: "16px 0 8px" }}>{t("配色预览")}</div>
-      <EditablePreview text={preview} onChange={setPreview} theme={terminalTheme(settings.theme)} entries={entries} />
-    </>}
+      <EditablePreview text={preview} onChange={setPreview} theme={activeTheme} disabled={!settings.highlightEnabled}
+        entries={settings.highlightEnabled ? entries : []} />
+    </fieldset>
   </section>;
 }
