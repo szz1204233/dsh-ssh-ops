@@ -105,6 +105,7 @@ const expectedPackedFiles = [
   "README.en.md",
   "README.md",
   "cordis.patch.yml",
+  "docs/highlight-refresh-fix.md",
   "docs/product-guide.en.md",
   "docs/product-guide.md",
   "docs/terminal-display.md",
