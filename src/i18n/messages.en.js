@@ -726,7 +726,6 @@ export const en = {
   "启用规则 ${rule.text}": "Enable rule ${rule.text}",
   "完整词": "Whole word",
   "包含文本": "Contains text",
-  "区分大小写": "Case sensitive",
   "忽略大小写": "Ignore case",
   "上移规则 ${rule.text}": "Move rule ${rule.text} up",
   "下移规则 ${rule.text}": "Move rule ${rule.text} down",

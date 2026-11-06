@@ -167,7 +167,7 @@ function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePoint
       style={{ gridArea: "case", display: "inline-flex" }}>
       <button type="button" className="dsh-case-toggle" disabled={!entry.enabled} aria-label={t(`${label} 区分大小写`)} aria-pressed={entry.caseSensitive}
         onClick={() => onChange({ caseSensitive: !entry.caseSensitive })}>
-        <span aria-hidden="true" style={{ fontFamily: "monospace", fontWeight: 600 }}>Aa</span>{t("区分大小写")}
+        <span aria-hidden="true" style={{ fontFamily: "monospace", fontWeight: 600, fontSize: 12 }}>Aa</span>
       </button>
     </span>
     {onDelete
