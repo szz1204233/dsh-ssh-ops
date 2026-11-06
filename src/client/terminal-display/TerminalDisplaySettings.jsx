@@ -2,7 +2,7 @@ import * as React from "react";
 import { t } from "../../i18n/core.js";
 import { useLanguage } from "../locale.js";
 import { getDisplaySettings, setDisplaySettings, subscribeDisplaySettings, updateScheme, resetScheme, setDisplayBackground, resetDisplayBackground } from "./settings.js";
-import { terminalTheme, resolveDisplayTheme, subscribeHostTheme, getHostTheme } from "./theme.js";
+import { terminalTheme, resolveDisplayTheme, subscribeHostTheme, getHostTheme, DEFAULT_BACKGROUNDS } from "./theme.js";
 import { getScheme, exportScheme, MAX_SCHEME_ENTRIES } from "./scheme.js";
 import { EditablePreview } from "./EditablePreview.jsx";
 import { PatternTags } from "./PatternTags.jsx";
@@ -187,6 +187,10 @@ export function TerminalDisplaySettings() {
   };
   React.useEffect(() => () => clearTimeout(exportTimer.current), []);
   const radioName = React.useId(), resolved = resolveDisplayTheme(settings.theme), activeTheme = terminalTheme(settings.theme, settings.backgrounds);
+  // The reset affordance only appears once the theme's background differs from
+  // the DSH default, so a pristine install shows just the picker and HEX.
+  const customBackground = typeof settings.backgrounds?.[resolved] === "string"
+    && settings.backgrounds[resolved] !== DEFAULT_BACKGROUNDS[resolved];
   const entries = React.useMemo(() => getScheme(settings, resolved), [settings, resolved]);
   const listRef = React.useRef(null);
   const rows = React.useRef(new Map());
@@ -449,7 +453,7 @@ export function TerminalDisplaySettings() {
           stays editable while the scheme list below is dimmed and disabled. */}
       <BackgroundField label={t("终端背景")} value={activeTheme.background}
         onChange={(color) => setDisplayBackground(resolved, color)}
-        onReset={() => resetDisplayBackground(resolved)} resetLabel={t("恢复 DSH 默认背景")} />
+        onReset={customBackground ? () => resetDisplayBackground(resolved) : undefined} resetLabel={t("恢复 DSH 默认背景")} />
       <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginLeft: "auto",
         opacity: settings.highlightEnabled ? 1 : 0.55, transition: "opacity .15s ease" }}>
         <button ref={resetRef} type="button" style={button} disabled={!settings.highlightEnabled}
@@ -498,6 +502,7 @@ export function TerminalDisplaySettings() {
         highlighting is off (that is exactly when a user wants to evaluate a
         scheme before turning it on). */}
     <div style={{ fontSize: 12, margin: "16px 0 8px", flexShrink: 0 }}>{t("配色预览")}</div>
-    <EditablePreview text={preview} onChange={setPreview} theme={activeTheme} entries={entries} />
+    <EditablePreview text={preview} onChange={setPreview} theme={activeTheme}
+      entries={settings.highlightEnabled ? entries : []} />
   </section>;
 }

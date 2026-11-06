@@ -1,4 +1,5 @@
 import { COLORS, colorsForTheme, HIGHLIGHT_RULES } from "./rules.js";
+import { DEFAULT_BACKGROUNDS } from "./theme.js";
 import { normalizeCustomRules } from "./custom-rules.js";
 
 export const MAX_SCHEME_ENTRIES = 43;
@@ -102,5 +103,8 @@ export function compileScheme(entries) {
 }
 
 export function exportScheme(settings, theme) {
-  return JSON.stringify({ format: "dsh-ssh-ops.color-scheme", version: 2, theme, entries: getScheme(settings, theme) }, null, 2) + "\n";
+  // The backup is the whole look of one theme: its pattern scheme plus the
+  // terminal background (custom or DSH default) needed to reproduce it.
+  const background = settings.backgrounds?.[theme] ?? DEFAULT_BACKGROUNDS[theme];
+  return JSON.stringify({ format: "dsh-ssh-ops.color-scheme", version: 2, theme, background, entries: getScheme(settings, theme) }, null, 2) + "\n";
 }

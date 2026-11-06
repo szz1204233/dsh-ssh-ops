@@ -237,6 +237,12 @@ test("theme schemes persist, synchronize and reset independently, preserving mig
     const json = exportScheme(getDisplaySettings(), "dark");
     assert.deepEqual(JSON.parse(json).entries, dark);
     assert.equal(JSON.parse(json).theme, "dark");
+    assert.equal(JSON.parse(json).background, "#101418", "the backup carries the DSH dark background");
+    assert.equal(JSON.parse(exportScheme(getDisplaySettings(), "light")).background, "#f7f8fa", "each theme backs up its own background");
+    setDisplaySettings({ backgrounds: { dark: "#000000" } });
+    assert.equal(JSON.parse(exportScheme(getDisplaySettings(), "dark")).background, "#000000", "a custom background is backed up");
+    assert.equal(JSON.parse(exportScheme(getDisplaySettings(), "light")).background, "#f7f8fa", "the other theme keeps its default background");
+    resetDisplayBackgrounds();
     const f = fixture({ [KEY]: JSON.stringify(getDisplaySettings()) }), store = createDisplaySettings(f);
     assert.deepEqual(getScheme(store.getSnapshot(), "dark"), dark);
     const off = store.subscribe(() => {});
