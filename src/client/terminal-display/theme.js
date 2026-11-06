@@ -1,5 +1,9 @@
 /*!
  * WindTerm 2.7.0 palette/rule adaptation (modified).
+ * Copyright (c) KingToolbox. All rights reserved.
+ * Upstream palette notes:
+ * Most colors take from Monokai.
+ * Most colors take from Vscode's QuiteLight Theme.
  * Source: https://github.com/kingToolbox/WindTerm/releases/tag/2.7.0
  * SPDX-License-Identifier: Apache-2.0
  * See THIRD_PARTY_NOTICES.md and licenses/Apache-2.0.txt.

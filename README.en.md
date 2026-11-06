@@ -270,4 +270,4 @@ Artifacts are written to `release/`:
 
 ## License
 
-[MIT](LICENSE)
+Original project code is licensed under [MIT](LICENSE). WindTerm-derived palettes/rules and other third-party material retain their own licenses; see [third-party notices](THIRD_PARTY_NOTICES.md) for scope, attribution and included license texts.

@@ -273,4 +273,4 @@ npm run pack:release
 
 ## 许可
 
-[MIT](LICENSE)
+项目原创代码使用 [MIT](LICENSE)。WindTerm 衍生配色／规则及其他第三方内容保留各自许可证；来源、适用范围和随包许可文本见[第三方声明](THIRD_PARTY_NOTICES.md)。
