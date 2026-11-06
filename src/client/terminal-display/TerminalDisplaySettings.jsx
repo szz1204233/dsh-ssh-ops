@@ -19,7 +19,27 @@ const DRAG_THRESHOLD = 6;
  * renders only the idle tree plus the one dragged row's placeholder state.
  */
 const STYLES = `
-.dsh-scheme-list { position: relative; overscroll-behavior: contain; scrollbar-gutter: stable; }
+.dsh-scheme-list { position: relative; overscroll-behavior: contain; scrollbar-gutter: stable;
+  flex: 1 1 380px; min-height: 120px; overflow-y: auto; overflow-x: hidden;
+  max-height: min(40vh, 380px, calc(100vh - 500px)); }
+/* Height-adaptive shell: the dialog caps its own height, so only the scheme
+   list scrolls; the theme switch, add button and preview stay on screen on
+   laptop-height (windowed) windows instead of being scrolled out of view. */
+.dsh-appearance-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.dsh-appearance-section { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+  padding: 4px 20px 18px; color: var(--dsh-ssh-ops-text, #d7dbe2); }
+.dsh-scheme-fieldset { flex: 1 1 auto; min-height: 0; }
+@media (max-height: 780px) {
+  .dsh-appearance-section { padding-bottom: 10px; }
+  /* Rows carry inline padding/row-gap; the compact spacing must win there. */
+  .dsh-scheme-row { padding-top: 6px !important; padding-bottom: 6px !important; row-gap: 4px !important; }
+}
+/* Very short windows fall back to one scrolling dialog rather than clipping. */
+@media (max-height: 620px) {
+  .dsh-appearance-body { overflow-y: auto; }
+  .dsh-appearance-section { flex: 0 0 auto; }
+  .dsh-scheme-list { flex: 0 0 auto; }
+}
 .dsh-scheme-list[data-dragging="true"] { user-select: none; -webkit-user-select: none; }
 .dsh-scheme-row { position: relative; touch-action: pan-y; transition: transform .22s cubic-bezier(.22,.61,.36,1), background-color .16s ease, box-shadow .16s ease, border-color .16s ease; }
 .dsh-scheme-row:hover { background: color-mix(in srgb, var(--dsh-ssh-ops-text, #d7dbe2) 5%, transparent); border-radius: 8px; }
@@ -380,10 +400,10 @@ export function TerminalDisplaySettings() {
     if (Date.now() < suppressClick.current) { event.preventDefault(); event.stopPropagation(); }
   };
 
-  return <section aria-label={t("终端显示")} style={{ padding: "4px 20px 18px", color: "var(--dsh-ssh-ops-text, #d7dbe2)", display: "flex", flexDirection: "column", minHeight: 0 }}>
+  return <section aria-label={t("终端显示")} className="dsh-appearance-section">
     <style>{STYLES}</style>
-    <p style={{ margin: "0 0 10px", fontSize: 12, lineHeight: 1.6, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("适用于所有 SSH 终端，修改后自动保存。")}</p>
-    <fieldset style={{ border: 0, padding: 0, margin: "0 0 8px", display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 18px" }}>
+    <p style={{ margin: "0 0 10px", flexShrink: 0, fontSize: 12, lineHeight: 1.6, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("适用于所有 SSH 终端，修改后自动保存。")}</p>
+    <fieldset style={{ border: 0, padding: 0, margin: "0 0 8px", flexShrink: 0, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 18px" }}>
       <legend style={{ float: "left", fontSize: 12, color: "var(--dsh-ssh-ops-muted, #8b93a1)", marginRight: 2 }}>{t("终端主题")}</legend>
       {[["system", t("跟随 DSH")], ["dark", t("深色")], ["light", t("浅色")]].map(([value, label]) => <label key={value} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12 }}>
         <input type="radio" name={radioName} value={value} checked={settings.theme === value} onChange={() => { setDisplaySettings({ theme: value }); setExported(false); setConfirmReset(false); }} />{label}
@@ -399,7 +419,7 @@ export function TerminalDisplaySettings() {
     <fieldset disabled={!settings.highlightEnabled} className="dsh-scheme-fieldset"
       style={{ border: 0, padding: 0, margin: 0, minWidth: 0, width: "100%", display: "flex", flexDirection: "column",
         opacity: settings.highlightEnabled ? 1 : 0.55, transition: "opacity .15s ease" }}>
-      <div style={{ position: "relative", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "16px 0 8px" }}>
+      <div style={{ position: "relative", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "16px 0 8px", flexShrink: 0 }}>
         <h4 style={{ fontSize: 13, margin: 0 }}>{t("配色方案")}</h4>
         <span className="dsh-theme-badge" style={{ marginRight: "auto" }}>
           <span aria-hidden="true" className="dsh-theme-dot" style={{ background: activeTheme.background, borderColor: activeTheme.foreground }} />
@@ -418,9 +438,9 @@ export function TerminalDisplaySettings() {
           <button type="button" style={button} onClick={() => setConfirmReset(false)}>{t("取消")}</button>
         </div>}
       </div>
-      <p style={{ fontSize: 11, lineHeight: 1.6, margin: "0 0 8px", color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("拖动左侧手柄排序（Alt + ↑/↓）。")}</p>
+      <p style={{ fontSize: 11, lineHeight: 1.6, margin: "0 0 8px", flexShrink: 0, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("拖动左侧手柄排序（Alt + ↑/↓）。")}</p>
       <div ref={listRef} className="dsh-scheme-list" onClickCapture={onListClickCapture}
-        style={{ overflowY: "auto", overflowX: "hidden", minHeight: 140, maxHeight: "min(40vh, 380px)", paddingRight: 6, borderTop: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
+        style={{ paddingRight: 6, borderTop: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
         {entries.map((entry) => {
           const custom = !Object.hasOwn(labels, entry.id), label = custom ? (entry.name || t("自定义配色项")) : labels[entry.id];
           return <SchemeEntry key={`${resolved}:${entry.id}`} entry={entry} label={label} dragging={dragId === entry.id}
@@ -432,7 +452,7 @@ export function TerminalDisplaySettings() {
         })}
         <div ref={indicator} className="dsh-drop-indicator" aria-hidden="true" />
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10 }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10, flexShrink: 0 }}>
         <button type="button" disabled={entries.length >= MAX_SCHEME_ENTRIES || Boolean(pendingEntry)} style={{ ...button, marginTop: 0 }}
           title={pendingEntry ? t("先填写新建的配色项") : undefined} onClick={addEntry}>{t("添加配色项")}</button>
         <span style={{ fontSize: 11, lineHeight: 1.5, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("每个标签是一个关键词或正则。Enter 添加，点击标签编辑。")}</span>
@@ -442,7 +462,7 @@ export function TerminalDisplaySettings() {
         for trying colors, so editing and coloring must work even when semantic
         highlighting is off (that is exactly when a user wants to evaluate a
         scheme before turning it on). */}
-    <div style={{ fontSize: 12, margin: "16px 0 8px" }}>{t("配色预览")}</div>
+    <div style={{ fontSize: 12, margin: "16px 0 8px", flexShrink: 0 }}>{t("配色预览")}</div>
     <EditablePreview text={preview} onChange={setPreview} theme={activeTheme} entries={entries} />
   </section>;
 }
