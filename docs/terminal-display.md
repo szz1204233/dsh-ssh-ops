@@ -12,6 +12,12 @@ Click the muted **palette button** on the right of the SSH server bar to open **
 
 Settings are saved locally under `dsh-ssh-ops.terminal-display.v1`, synchronized to other same-origin windows, and reused after restart. They are not stored on the SSH server or shared between devices. If local storage is blocked or full, changes remain usable in the current window but may not survive a reload. The previous experimental highlight preference is read when no display-settings record exists.
 
+## Session-log highlighting is separate
+
+The warning/error highlighting introduced in v0.4.0 applies to recorded text in the **Logs** tab and its search results. It colors whole lines using fixed heuristics, independently of Terminal appearance settings. The optional semantic highlighting described here applies to tokens in the **live terminal** and its appearance preview; it does not alter recorded logs or their viewer.
+
+The default classifications also differ: the log viewer colors `WARNING` and `deprecated` lines amber, while the WindTerm-derived terminal rules place those words in the red error category. Terminal scheme colors and patterns are editable; the log viewer keeps its existing rules. The two renderers never decorate the same surface.
+
 ## Rendering boundaries
 
 Only default-style xterm cells receive semantic foreground decorations. Existing remote ANSI foreground/background colors and font attributes take priority. The matcher joins automatic wraps and maps Unicode text back to xterm cell widths; it does not modify terminal bytes, copy/search text, session logs, or agent output. Alternate-screen applications such as editors are not decorated.
