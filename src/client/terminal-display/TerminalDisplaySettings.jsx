@@ -62,6 +62,10 @@ const STYLES = `
   box-shadow: 0 18px 40px rgba(0,0,0,.38), 0 2px 8px rgba(0,0,0,.24);
   animation: dsh-ghost-in .16s cubic-bezier(.22,.61,.36,1); will-change: left, top; }
 @keyframes dsh-ghost-in { from { opacity: 0; box-shadow: 0 2px 8px rgba(0,0,0,.2); } }
+.dsh-drag-hint { position: fixed; z-index: 2147483001; pointer-events: none; transform: translateX(-50%);
+  padding: 4px 8px; font-size: 11px; line-height: 1.6; white-space: nowrap; color: var(--dsh-ssh-ops-text, #d7dbe2);
+  background: var(--dsh-ssh-ops-surface, #161b21); border: 1px solid var(--dsh-ssh-ops-border, #3a414b);
+  border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.28); }
 .dsh-drop-indicator { position: absolute; top: 0; left: 0; right: 0; height: 2px; margin-top: -1px; border-radius: 2px;
   background: #2d6cdf; box-shadow: 0 0 0 1px color-mix(in srgb, rgba(45,108,223,.30));
   pointer-events: none; display: none; will-change: transform; }
@@ -121,7 +125,7 @@ function BackgroundField({ label, value, onChange, onReset, resetLabel }) {
   </span>;
 }
 
-function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePointerDown, onKeyboardMove, rowRef }) {
+function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePointerDown, onKeyboardMove, onHandleHint, onHandleHintEnd, rowRef }) {
   const [hex, setHex] = React.useState(entry.color);
   const toggleId = React.useId();
   React.useEffect(() => setHex(entry.color), [entry.color]);
@@ -135,8 +139,10 @@ function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePoint
       gridTemplateAreas: '"grip name color hex case del rest" "tags tags tags tags tags tags tags"',
       columnGap: 8, rowGap: 6, alignItems: "center",
       padding: "10px 6px 10px 2px", borderBottom: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
-    <button type="button" data-drag-handle className="dsh-drag-handle" aria-label={t(`拖动排序 ${label}`)} title={t("拖动排序")}
+    <button type="button" data-drag-handle className="dsh-drag-handle" aria-label={t(`拖动排序 ${label}`)}
       onPointerDown={onHandlePointerDown}
+      onPointerEnter={onHandleHint} onPointerLeave={onHandleHintEnd}
+      onFocus={onHandleHint} onBlur={onHandleHintEnd}
       onKeyDown={(event) => { if (event.altKey && ["ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); onKeyboardMove(event.key === "ArrowUp" ? -1 : 1); } }}
       style={{ gridArea: "grip" }}>
       <svg width="14" height="16" viewBox="0 0 14 16" fill="currentColor" aria-hidden="true"><circle cx="4" cy="4" r="1"/><circle cx="10" cy="4" r="1"/><circle cx="4" cy="8" r="1"/><circle cx="10" cy="8" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="10" cy="12" r="1"/></svg>
@@ -265,7 +271,10 @@ export function TerminalDisplaySettings() {
     });
   };
   const clearVisuals = (state, keepGhost = false) => {
-    for (const element of rowElements()) { element.style.transform = ""; element.style.zIndex = ""; element.removeAttribute("data-drop-target"); }
+    for (const element of rowElements()) {
+      element.style.transform = ""; element.style.zIndex = "";
+      element.removeAttribute("data-drop-target"); element.removeAttribute("data-drag-source");
+    }
     if (indicator.current) { indicator.current.style.display = "none"; indicator.current.style.transform = ""; }
     if (!keepGhost) state?.ghost?.remove();
     if (listRef.current) listRef.current.removeAttribute("data-dragging");
@@ -339,6 +348,7 @@ export function TerminalDisplaySettings() {
   };
   const onHandlePointerDown = (event, id) => {
     if (event.button !== 0 || !event.isPrimary) return;
+    hideHandleHint();
     const element = rows.current.get(id);
     const list = listRef.current;
     if (!element || !list) return;
@@ -402,13 +412,23 @@ export function TerminalDisplaySettings() {
     const to = destination.getBoundingClientRect();
     const fromLeft = Number.parseFloat(ghost.style.left) || 0;
     const fromTop = Number.parseFloat(ghost.style.top) || 0;
-    const animation = ghost.animate([
-      { transform: "translate(0, 0)", opacity: 0.92 },
-      { transform: `translate(${to.left - fromLeft}px, ${to.top - fromTop}px)`, opacity: 1 }
-    ], { duration: 220, easing: "cubic-bezier(.22,.61,.36,1)" });
-    try { await animation.finished; } catch { /* interrupted */ }
-    ghost.remove();
-    destination.focus?.();
+    // Only one floating box while the copy glides back: hide the row it is
+    // about to land on (keeping its space as an empty slot) and reveal it once
+    // the copy has landed.
+    destination.style.visibility = "hidden";
+    try {
+      const animation = ghost.animate([
+        { transform: "translate(0, 0)", opacity: 0.92 },
+        { transform: `translate(${to.left - fromLeft}px, ${to.top - fromTop}px)`, opacity: 1 }
+      ], { duration: 220, easing: "cubic-bezier(.22,.61,.36,1)" });
+      try { await animation.finished; } catch { /* interrupted */ }
+    } finally {
+      ghost.remove();
+      destination.style.visibility = "";
+    }
+    // A plain row div is not focusable, and the drag hides the handle's focus
+    // target; give focus back to the handle so keyboard users keep their place.
+    destination.querySelector("[data-drag-handle]")?.focus();
   };
   const onPointerUp = (event) => {
     const state = drag.current;
@@ -427,6 +447,37 @@ export function TerminalDisplaySettings() {
   const onListClickCapture = (event) => {
     if (Date.now() < suppressClick.current) { event.preventDefault(); event.stopPropagation(); }
   };
+
+  // The handle hint is rendered as a fixed element on the dialog instead of a
+  // native `title`, whose ~1 s OS delay felt too slow; 160 ms keeps it snappy
+  // and the list's scroll container cannot clip it.
+  const handleHint = React.useRef(undefined);
+  const handleHintTimer = React.useRef(undefined);
+  const hideHandleHint = () => {
+    clearTimeout(handleHintTimer.current);
+    handleHint.current?.remove();
+    handleHint.current = undefined;
+  };
+  const showHandleHint = (event) => {
+    const handle = event.currentTarget;
+    clearTimeout(handleHintTimer.current);
+    handleHintTimer.current = setTimeout(() => {
+      if (!handle.isConnected) return;
+      hideHandleHint();
+      const dialog = handle.closest("dialog") ?? document.body;
+      const tip = document.createElement("div");
+      tip.className = "dsh-drag-hint";
+      tip.setAttribute("role", "tooltip");
+      tip.textContent = t("拖动排序；Alt + ↑/↓ 移动");
+      dialog.appendChild(tip);
+      handleHint.current = tip;
+      const rect = handle.getBoundingClientRect();
+      tip.style.left = `${Math.round(rect.left + rect.width / 2)}px`;
+      const below = rect.bottom + 6;
+      tip.style.top = `${Math.round(below + 30 > window.innerHeight ? rect.top - 32 : below)}px`;
+    }, 160);
+  };
+  React.useEffect(() => () => { clearTimeout(handleHintTimer.current); handleHint.current?.remove(); }, []);
 
   return <section aria-label={t("终端显示")} className="dsh-appearance-section">
     <style>{STYLES}</style>
@@ -477,7 +528,7 @@ export function TerminalDisplaySettings() {
     <fieldset disabled={!settings.highlightEnabled} className="dsh-scheme-fieldset" style={{ display: "contents" }}>
       <div className="dsh-scheme-fill" style={{ opacity: settings.highlightEnabled ? 1 : 0.55, transition: "opacity .15s ease" }}>
       <p style={{ fontSize: 11, lineHeight: 1.6, margin: "0 0 8px", flexShrink: 0, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("拖动左侧手柄排序，点击标签编辑。")}</p>
-      <div ref={listRef} className="dsh-scheme-list" onClickCapture={onListClickCapture}
+      <div ref={listRef} className="dsh-scheme-list" onClickCapture={onListClickCapture} onScroll={hideHandleHint}
         style={{ paddingRight: 6, borderTop: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
         {entries.map((entry) => {
           const custom = !Object.hasOwn(labels, entry.id), label = custom ? (entry.name || t("自定义配色项")) : labels[entry.id];
@@ -486,6 +537,7 @@ export function TerminalDisplaySettings() {
             onChange={(patch) => change(entry.id, patch)}
             onHandlePointerDown={(event) => onHandlePointerDown(event, entry.id)}
             onKeyboardMove={(direction) => onKeyboardMove(entry.id, direction)}
+            onHandleHint={showHandleHint} onHandleHintEnd={hideHandleHint}
             onDelete={custom ? () => updateScheme(resolved, (scheme) => scheme.filter((item) => item.id !== entry.id)) : undefined} />;
         })}
         <div ref={indicator} className="dsh-drop-indicator" aria-hidden="true" />
