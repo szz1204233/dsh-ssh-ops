@@ -60,6 +60,7 @@ const STYLES = `
   pointer-events: none; animation: dsh-toast-in .16s ease-out; }
 @keyframes dsh-toast-in { from { opacity: 0; transform: translateY(-4px); } }
 .dsh-scheme-fieldset:disabled input, .dsh-scheme-fieldset:disabled button { cursor: not-allowed; }
+.dsh-case-wrap > button:disabled { pointer-events: none; }
 .dsh-reset-popover { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: min(440px, 100%);
   display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; font-size: 12px;
   background: var(--dsh-ssh-ops-surface, #161b21); border: 1px solid #2d6cdf; border-radius: 8px;
@@ -107,11 +108,16 @@ function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePoint
     <input aria-label={label + " HEX"} value={hex} disabled={!entry.enabled} maxLength={7} spellCheck={false}
       onChange={(event) => { setHex(event.target.value); if (/^#[0-9a-f]{6}$/i.test(event.target.value)) onChange({ color: event.target.value }); }} onBlur={() => setHex(entry.color)}
       style={{ ...field, ...control, gridArea: "hex", width: 84, padding: "0 6px", fontFamily: "monospace" }} />
-    <button type="button" className="dsh-case-toggle" disabled={!entry.enabled} aria-label={t(`${label} 区分大小写`)} aria-pressed={entry.caseSensitive}
-      title={entry.caseSensitive ? t("区分大小写：已开启") : t("区分大小写：已关闭")} onClick={() => onChange({ caseSensitive: !entry.caseSensitive })}
-      style={{ gridArea: "case" }}>
-      <span aria-hidden="true" style={{ fontFamily: "monospace", fontWeight: 600 }}>Aa</span>{t("区分大小写")}
-    </button>
+    {/* The wrapper carries the state hint: a disabled control swallows its
+        native title tooltip, so the hint has to hang off an element that still
+        hovers while the toggle or the whole scheme is disabled. */}
+    <span className="dsh-case-wrap" title={entry.caseSensitive ? t("区分大小写：已开启") : t("区分大小写：已关闭")}
+      style={{ gridArea: "case", display: "inline-flex" }}>
+      <button type="button" className="dsh-case-toggle" disabled={!entry.enabled} aria-label={t(`${label} 区分大小写`)} aria-pressed={entry.caseSensitive}
+        onClick={() => onChange({ caseSensitive: !entry.caseSensitive })}>
+        <span aria-hidden="true" style={{ fontFamily: "monospace", fontWeight: 600 }}>Aa</span>{t("区分大小写")}
+      </button>
+    </span>
     {onDelete
       ? <button type="button" className="dsh-delete-entry" style={{ gridArea: "del", justifySelf: "end" }} aria-label={t(`删除配色项 ${label}`)} title={t(`删除配色项 ${label}`)} onClick={onDelete}>{t("删除")}</button>
       : <span style={{ gridArea: "del" }} />}
@@ -431,9 +437,12 @@ export function TerminalDisplaySettings() {
           title={pendingEntry ? t("先填写新建的配色项") : undefined} onClick={addEntry}>{t("添加配色项")}</button>
         <span style={{ fontSize: 11, lineHeight: 1.5, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("每个标签是一个关键词或正则。Enter 添加，点击标签编辑。")}</span>
       </div>
-      <div style={{ fontSize: 12, margin: "16px 0 8px" }}>{t("配色预览")}</div>
-      <EditablePreview text={preview} onChange={setPreview} theme={activeTheme} disabled={!settings.highlightEnabled}
-        entries={settings.highlightEnabled ? entries : []} />
     </fieldset>
+    {/* The preview stays live while the scheme is disabled: it is the sandbox
+        for trying colors, so editing and coloring must work even when semantic
+        highlighting is off (that is exactly when a user wants to evaluate a
+        scheme before turning it on). */}
+    <div style={{ fontSize: 12, margin: "16px 0 8px" }}>{t("配色预览")}</div>
+    <EditablePreview text={preview} onChange={setPreview} theme={activeTheme} entries={entries} />
   </section>;
 }

@@ -13,6 +13,7 @@ import { defaultScheme, compileScheme } from "../src/client/terminal-display/sch
 import { matchText } from "../src/client/terminal-display/matcher.js";
 
 const previewLines = DEFAULT_PREVIEW_TEXT.split("\n");
+const HAN = /\p{Script=Han}/u;
 
 /** Map each highlight category (entry id) to whether the seed text shows it. */
 function coveredCategories(theme) {
@@ -40,8 +41,22 @@ test("preview seed text demonstrates every built-in highlight category in both t
   }
 });
 
-test("preview seed text shows CJK characters and fits the preview box without scrolling", () => {
-  assert.match(DEFAULT_PREVIEW_TEXT, /\p{Script=Han}/u, "CJK characters are visible in the preview");
+test("preview seed text reads as one log excerpt and keeps CJK as quoted string values", () => {
+  // Plain logging English stays visible, so the colors are shown on realistic
+  // content instead of a mixed bag of tokens.
+  assert.match(DEFAULT_PREVIEW_TEXT, /service started/);
+  assert.match(DEFAULT_PREVIEW_TEXT, /connection refused/);
+
+  // CJK characters only appear inside double-quoted values (a payload field),
+  // never as loose text mixed into the log line.
+  const cjkLines = previewLines.filter((line) => HAN.test(line));
+  assert.ok(cjkLines.length >= 2, "the excerpt includes quoted CJK payloads");
+  for (const line of cjkLines) {
+    assert.match(line, /"[^"]*\p{Script=Han}[^"]*"/u, `CJK must be a quoted string value: ${line}`);
+  }
+});
+
+test("preview seed text fits the preview box without scrolling", () => {
   // The preview box is 188 px tall with 12 px padding and a 20 px line height:
   // eight lines fit exactly, so all built-in categories are visible at once.
   assert.ok(previewLines.length <= 8, `seed text uses at most 8 lines (got ${previewLines.length})`);
