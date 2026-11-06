@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import xterm from "@xterm/xterm";
 import { matchText, readLogicalLine, matchLogicalLine } from "../src/client/terminal-display/matcher.js";
 import { COLORS, HIGHLIGHT_RULES } from "../src/client/terminal-display/rules.js";
-import { WINDTERM_DARK_THEME } from "../src/client/terminal-display/theme.js";
+import { WINDTERM_DARK_THEME, WINDTERM_LIGHT_THEME } from "../src/client/terminal-display/theme.js";
 import { OutputHighlightAddon } from "../src/client/terminal-display/addon.js";
 import { getDisplaySettings, setDisplaySettings } from "../src/client/terminal-display/settings.js";
 
@@ -170,7 +170,7 @@ test("failed decoration API cleans marker and disables only the addon", async ()
     assert.equal(addon.failed, true);
     assert.equal(term.markers.length, 0);
     setDisplaySettings({ theme: "light" });
-    assert.equal(term.options.theme.background, "#ffffff", "theme updates survive a decoration failure");
+    assert.equal(term.options.theme.background, WINDTERM_LIGHT_THEME.background, "theme updates survive a decoration failure");
     await addon.scan(); assert.equal(addon.rows.length, 0);
     await write(term, '\r\nterminal still usable');
     assert.equal(term.buffer.active.getLine(1).translateToString(true), 'terminal still usable');

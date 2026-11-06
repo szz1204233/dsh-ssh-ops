@@ -2,10 +2,10 @@ import { acquireTestMatcher } from "./helpers/highlight-worker.mjs";
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import xterm from "@xterm/xterm";
-import { createDisplaySettings, getDisplaySettings, setDisplaySettings, setDisplayColor, resetDisplayColors, saveDisplayRule, deleteDisplayRule, moveDisplayRule } from "../src/client/terminal-display/settings.js";
+import { createDisplaySettings, getDisplaySettings, setDisplaySettings, setDisplayColor, resetDisplayColors, saveDisplayRule, deleteDisplayRule, moveDisplayRule, setDisplayBackground, resetDisplayBackground, resetDisplayBackgrounds } from "../src/client/terminal-display/settings.js";
 import { OutputHighlightAddon } from "../src/client/terminal-display/addon.js";
 import { COLORS, LIGHT_COLORS } from "../src/client/terminal-display/rules.js";
-import { WINDTERM_LIGHT_THEME, resolveDisplayTheme } from "../src/client/terminal-display/theme.js";
+import { WINDTERM_DARK_THEME, WINDTERM_LIGHT_THEME, resolveDisplayTheme, terminalTheme } from "../src/client/terminal-display/theme.js";
 const KEY = "dsh-ssh-ops.terminal-display.v1";
 function fixture(entries = {}) {
   const values = new Map(Object.entries(entries)), listeners = new Set();
@@ -84,11 +84,11 @@ function contrast(hex, background) {
   const a = luminance(hex), b = luminance(background);
   return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
-test("light semantic and ANSI palettes maintain readable contrast on white", () => {
+test("light semantic and ANSI palettes maintain readable contrast on the DSH light background", () => {
   const entries = { ...LIGHT_COLORS, ...WINDTERM_LIGHT_THEME };
   for (const [name, color] of Object.entries(entries)) {
     if (["background", "cursorAccent", "selectionBackground"].includes(name)) continue;
-    assert.ok(contrast(color, "#ffffff") >= 4.5, `${name}: ${color}`);
+    assert.ok(contrast(color, WINDTERM_LIGHT_THEME.background) >= 4.5, `${name}: ${color}`);
   }
 });
 test("theme and highlighting apply to all live terminals, including while disabled", async () => {
@@ -103,15 +103,20 @@ test("theme and highlighting apply to all live terminals, including while disabl
     assert.ok(before.every((signature) => signature.includes(COLORS.error)));
     setDisplaySettings({ theme: "light" });
     for (let i = 0; i < terminals.length; i++) {
-      assert.equal(terminals[i].options.theme.background, "#ffffff");
+      assert.equal(terminals[i].options.theme.background, WINDTERM_LIGHT_THEME.background);
       await addons[i].scan(); assert.ok(addons[i].rows[0].signature.includes(LIGHT_COLORS.error));
     }
     setDisplaySettings({ highlightEnabled: false });
     assert.ok(addons.every((addon) => addon.rows.length === 0));
     setDisplaySettings({ theme: "dark" });
-    assert.ok(terminals.every((term) => term.options.theme.background === "#1c1c1c"));
+    assert.ok(terminals.every((term) => term.options.theme.background === WINDTERM_DARK_THEME.background));
+    setDisplaySettings({ backgrounds: { dark: "#000000" } });
+    assert.ok(terminals.every((term) => term.options.theme.background === "#000000"), "live terminals take the custom background");
+    assert.ok(terminals.every((term) => term.options.theme.foreground === "#e6edf3"), "a dark custom background keeps a light foreground");
+    resetDisplayBackgrounds();
+    assert.ok(terminals.every((term) => term.options.theme.background === WINDTERM_DARK_THEME.background), "resetting returns to the DSH background");
     const added = new xterm.Terminal({ allowProposedApi: true }); added.loadAddon(new OutputHighlightAddon({ acquireMatcher: acquireTestMatcher }));
-    assert.equal(added.options.theme.background, "#1c1c1c"); added.dispose();
+    assert.equal(added.options.theme.background, WINDTERM_DARK_THEME.background); added.dispose();
   } finally { terminals.forEach((term) => term.dispose()); setDisplaySettings(original); }
 });
 
@@ -265,4 +270,41 @@ test("editing a scheme entry replaces its matching text, toggles locally and upd
     terminals.forEach((term) => term.dispose());
     setDisplaySettings({ ...original, schemes: original.schemes ?? {}, colors: original.colors ?? {}, customRules: original.customRules ?? [], builtinEnabled: original.builtinEnabled !== false });
   }
+});
+
+
+test("custom backgrounds are validated, persisted per theme and reset to the DSH defaults", () => {
+  const original = getDisplaySettings();
+  try {
+    setDisplayBackground("dark", "#000000");
+    setDisplayBackground("light", "#FFEEDD");
+    assert.deepEqual(getDisplaySettings().backgrounds, { dark: "#000000", light: "#ffeedd" });
+    setDisplayBackground("dark", "red");           // not a hex colour
+    setDisplayBackground("sepia", "#000000");      // not a theme
+    assert.deepEqual(getDisplaySettings().backgrounds, { dark: "#000000", light: "#ffeedd" }, "invalid updates are ignored");
+    resetDisplayBackground("dark");
+    assert.deepEqual(getDisplaySettings().backgrounds, { light: "#ffeedd" }, "one theme can return to the DSH background while the other stays custom");
+    resetDisplayBackgrounds();
+    assert.equal(getDisplaySettings().backgrounds, undefined, "reset drops every override");
+    const f = fixture();
+    createDisplaySettings(f).update({ backgrounds: { dark: "#000000", light: "#ffeedd", extra: "#123456" } });
+    assert.deepEqual(createDisplaySettings(f).getSnapshot().backgrounds, { dark: "#000000", light: "#ffeedd" });
+  } finally { resetDisplayBackgrounds(); setDisplaySettings(original); }
+});
+
+test("terminalTheme merges the DSH chrome with the ANSI palette and re-picks the foreground by luminance", () => {
+  assert.equal(terminalTheme("dark").background, WINDTERM_DARK_THEME.background);
+  assert.equal(terminalTheme("light").background, WINDTERM_LIGHT_THEME.background);
+  assert.equal(terminalTheme("dark").red, WINDTERM_DARK_THEME.red, "ANSI colours are untouched");
+  const dark = terminalTheme("dark", { dark: "#000000" });
+  assert.equal(dark.background, "#000000");
+  assert.equal(dark.foreground, "#e6edf3");
+  assert.equal(dark.cursorAccent, "#000000");
+  const light = terminalTheme("light", { light: "#fefefe" });
+  assert.equal(light.background, "#fefefe");
+  assert.equal(light.foreground, "#1d2128");
+  const inverted = terminalTheme("dark", { dark: "#fefefe" });
+  assert.equal(inverted.foreground, "#1d2128", "a light custom background must not keep the dark preset's light text");
+  assert.equal(terminalTheme("dark", { dark: "#12345g" }), WINDTERM_DARK_THEME, "an invalid override falls back to the preset");
+  assert.equal(terminalTheme("dark", { light: "#000000" }), WINDTERM_DARK_THEME, "only the resolved theme's override applies");
 });

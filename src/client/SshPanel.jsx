@@ -172,7 +172,7 @@ const terminalPool = createTerminalPool({
       // Some remote commands produce LF-only text. Treat it as a normal
       // terminal newline so rows do not continue at the previous column.
       convertEol: true,
-      theme: terminalTheme(getDisplaySettings().theme)
+      theme: terminalTheme(getDisplaySettings().theme, getDisplaySettings().backgrounds)
     });
     const fit = new FitAddon();
     term.loadAddon(fit);
@@ -995,7 +995,7 @@ export function SshPanel({ api, credentials, viewId = DEFAULT_VIEW_ID, viewSigna
   const [tab, setTab] = useState("terminal");
   const terminalDisplay = useSyncExternalStore(subscribeDisplaySettings, getDisplaySettings);
   useSyncExternalStore(subscribeHostTheme, getHostTheme);
-  const terminalColors = terminalTheme(terminalDisplay.theme);
+  const terminalColors = terminalTheme(terminalDisplay.theme, terminalDisplay.backgrounds);
   const [batchTask, setBatchTask] = useState(null);
   const [pendingBatchCount, setPendingBatchCount] = useState(0);
   // Batch ids already surfaced this panel session. Dismissing the dialog (e.g.

@@ -24,9 +24,15 @@ function parse(value) {
         const scheme = normalizeScheme(data.schemes?.[theme]);
         if (scheme) schemes[theme] = scheme;
       }
+      const backgrounds = {};
+      for (const theme of ["dark", "light"]) {
+        const color = data.backgrounds?.[theme];
+        if (typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color)) backgrounds[theme] = color.toLowerCase();
+      }
       return Object.freeze({ ...(data.builtinEnabled === false ? { builtinEnabled: false } : {}),
         ...(Object.keys(schemes).length ? { schemes: Object.freeze(schemes) } : {}),
         ...(customRules.length ? { customRules: Object.freeze(customRules) } : {}), highlightEnabled: data.highlightEnabled, theme: data.theme,
+        ...(Object.keys(backgrounds).length ? { backgrounds: Object.freeze(backgrounds) } : {}),
         ...(Object.keys(colors).length ? { colors: Object.freeze(colors) } : {}) });
     }
   } catch {}
@@ -108,6 +114,25 @@ export function updateScheme(theme, update) {
 }
 export function resetScheme(theme) {
   updateScheme(theme, () => defaultScheme(theme));
+}
+
+/** Override one theme's terminal background (validated #rrggbb). */
+export function setDisplayBackground(theme, color) {
+  if (!["dark", "light"].includes(theme) || !/^#[0-9a-f]{6}$/i.test(color)) return;
+  settings.update((state) => ({ backgrounds: { ...state.backgrounds, [theme]: color.toLowerCase() } }));
+}
+/** Drop one theme's background override (restores DSH's background). */
+export function resetDisplayBackground(theme) {
+  if (!["dark", "light"].includes(theme)) return;
+  settings.update((state) => {
+    const backgrounds = { ...state.backgrounds };
+    delete backgrounds[theme];
+    return { backgrounds: Object.keys(backgrounds).length ? backgrounds : undefined };
+  });
+}
+/** Drop every background override, returning both themes to DSH's colors. */
+export function resetDisplayBackgrounds() {
+  settings.update(() => ({ backgrounds: undefined }));
 }
 
 export function setDisplayColor(theme, key, color) {

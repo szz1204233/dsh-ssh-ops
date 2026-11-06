@@ -134,10 +134,9 @@ export class OutputHighlightAddon {
   applyTheme() {
     // A decoration failure must not disable the user's theme preference.
     if (this.disposed) return;
-    const theme = this.term.options.theme;
-    if (Object.entries(terminalTheme(getDisplaySettings().theme)).some(([key, value]) => theme?.[key] !== value)) {
-      applyTerminalTheme(this.term, { ...terminalTheme(getDisplaySettings().theme) });
-    }
+    const settings = getDisplaySettings();
+    const theme = this.term.options.theme, next = terminalTheme(settings.theme, settings.backgrounds);
+    if (Object.entries(next).some(([key, value]) => theme?.[key] !== value)) applyTerminalTheme(this.term, { ...next });
   }
   request() {
     if (this.disposed || this.failed) return;

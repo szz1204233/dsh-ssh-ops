@@ -1,7 +1,7 @@
 import * as React from "react";
 import { t } from "../../i18n/core.js";
 import { useLanguage } from "../locale.js";
-import { getDisplaySettings, setDisplaySettings, subscribeDisplaySettings, updateScheme, resetScheme } from "./settings.js";
+import { getDisplaySettings, setDisplaySettings, subscribeDisplaySettings, updateScheme, resetScheme, setDisplayBackground, resetDisplayBackground } from "./settings.js";
 import { terminalTheme, resolveDisplayTheme, subscribeHostTheme, getHostTheme } from "./theme.js";
 import { getScheme, exportScheme, MAX_SCHEME_ENTRIES } from "./scheme.js";
 import { EditablePreview } from "./EditablePreview.jsx";
@@ -20,15 +20,18 @@ const DRAG_THRESHOLD = 6;
  */
 const STYLES = `
 .dsh-scheme-list { position: relative; overscroll-behavior: contain; scrollbar-gutter: stable;
-  flex: 1 1 380px; min-height: 120px; overflow-y: auto; overflow-x: hidden;
-  max-height: min(40vh, 380px, calc(100vh - 500px)); }
+  flex: 1 1 380px; min-height: 120px; max-height: min(40vh, 380px); overflow-y: auto; overflow-x: hidden; }
 /* Height-adaptive shell: the dialog caps its own height, so only the scheme
    list scrolls; the theme switch, add button and preview stay on screen on
    laptop-height (windowed) windows instead of being scrolled out of view. */
 .dsh-appearance-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
 .dsh-appearance-section { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
   padding: 4px 20px 18px; color: var(--dsh-ssh-ops-text, #d7dbe2); }
-.dsh-scheme-fieldset { flex: 1 1 auto; min-height: 0; }
+/* The fieldset only carries the disabled semantics: display:contents keeps it
+   out of layout so .dsh-scheme-fill is a normal flex item that can shrink;
+   Chrome will not shrink flex children through a fieldset content box. */
+.dsh-scheme-fieldset { display: contents; }
+.dsh-scheme-fill { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; width: 100%; }
 @media (max-height: 780px) {
   .dsh-appearance-section { padding-bottom: 10px; }
   /* Rows carry inline padding/row-gap; the compact spacing must win there. */
@@ -38,6 +41,7 @@ const STYLES = `
 @media (max-height: 620px) {
   .dsh-appearance-body { overflow-y: auto; }
   .dsh-appearance-section { flex: 0 0 auto; }
+  .dsh-scheme-fill { flex: 0 0 auto; }
   .dsh-scheme-list { flex: 0 0 auto; }
 }
 .dsh-scheme-list[data-dragging="true"] { user-select: none; -webkit-user-select: none; }
@@ -96,6 +100,26 @@ const STYLES = `
     grid-template-areas: "grip name color del" "case case case case" "hex hex hex hex" "tags tags tags tags" !important; }
 }
 `;
+
+/** Background colour swatch + HEX for the active theme, with a reset affordance. */
+function BackgroundField({ label, value, onChange, onReset, resetLabel }) {
+  const [hex, setHex] = React.useState(value);
+  const id = React.useId();
+  React.useEffect(() => setHex(value), [value]);
+  return <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
+    <label htmlFor={id} style={{ color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{label}</label>
+    <input id={id} type="color" aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}
+      style={{ width: 30, height: 24, padding: 2, boxSizing: "border-box", background: "transparent",
+        border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 4 }} />
+    <input aria-label={label + " HEX"} value={hex} maxLength={7} spellCheck={false}
+      onChange={(event) => { setHex(event.target.value); if (/^#[0-9a-f]{6}$/i.test(event.target.value)) onChange(event.target.value); }}
+      onBlur={() => setHex(value)}
+      style={{ ...field, height: 24, width: 78, padding: "0 6px", fontFamily: "monospace" }} />
+    {onReset && <button type="button" aria-label={resetLabel} title={resetLabel} onClick={onReset}
+      style={{ ...field, display: "inline-flex", alignItems: "center", justifyContent: "center",
+        height: 24, width: 24, padding: 0, cursor: "pointer", fontSize: 13, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>↺</button>}
+  </span>;
+}
 
 function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePointerDown, onKeyboardMove, rowRef }) {
   const [hex, setHex] = React.useState(entry.color);
@@ -162,7 +186,7 @@ export function TerminalDisplaySettings() {
     exportTimer.current = setTimeout(() => setExported(false), 3200);
   };
   React.useEffect(() => () => clearTimeout(exportTimer.current), []);
-  const radioName = React.useId(), resolved = resolveDisplayTheme(settings.theme), activeTheme = terminalTheme(settings.theme);
+  const radioName = React.useId(), resolved = resolveDisplayTheme(settings.theme), activeTheme = terminalTheme(settings.theme, settings.backgrounds);
   const entries = React.useMemo(() => getScheme(settings, resolved), [settings, resolved]);
   const listRef = React.useRef(null);
   const rows = React.useRef(new Map());
@@ -413,31 +437,41 @@ export function TerminalDisplaySettings() {
         <input type="checkbox" checked={settings.highlightEnabled} onChange={(event) => { setDisplaySettings({ highlightEnabled: event.target.checked }); setConfirmReset(false); setExported(false); }} />{t("启用语义高亮")}
       </label>
     </fieldset>
+    {/* Theme-scoped row: the heading, badge and terminal background stay usable
+        while semantic highlighting is off; only the scheme actions dim below. */}
+    <div style={{ position: "relative", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "16px 0 8px", flexShrink: 0 }}>
+      <h4 style={{ fontSize: 13, margin: 0 }}>{t("配色方案")}</h4>
+      <span className="dsh-theme-badge">
+        <span aria-hidden="true" className="dsh-theme-dot" style={{ background: activeTheme.background, borderColor: activeTheme.foreground }} />
+        {resolved === "light" ? t("浅色主题") : t("深色主题")}
+      </span>
+      {/* The terminal background belongs to the theme, not to highlighting: it
+          stays editable while the scheme list below is dimmed and disabled. */}
+      <BackgroundField label={t("终端背景")} value={activeTheme.background}
+        onChange={(color) => setDisplayBackground(resolved, color)}
+        onReset={() => resetDisplayBackground(resolved)} resetLabel={t("恢复 DSH 默认背景")} />
+      <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginLeft: "auto",
+        opacity: settings.highlightEnabled ? 1 : 0.55, transition: "opacity .15s ease" }}>
+        <button ref={resetRef} type="button" style={button} disabled={!settings.highlightEnabled}
+          aria-expanded={confirmReset} aria-haspopup="dialog"
+          onClick={() => setConfirmReset((open) => !open)}>{t("恢复当前主题默认配色方案")}</button>
+        <span style={{ position: "relative", display: "inline-flex" }}>
+          <button type="button" style={button} disabled={!settings.highlightEnabled} onClick={backup}>{t("备份当前配色方案")}</button>
+          {exported && <span className="dsh-export-toast" role="status" aria-live="polite">{t("已导出当前主题配色方案（JSON）。")}</span>}
+        </span>
+      </div>
+      {confirmReset && <div ref={confirmRef} className="dsh-reset-popover" role="alertdialog" aria-label={t("恢复默认配色方案确认")}>
+        <span style={{ flex: "1 1 200px", lineHeight: 1.5 }}>{t("将恢复当前主题的默认配色方案，当前修改会被覆盖。建议先备份。")}</span>
+        <button type="button" style={button} onClick={backup}>{t("先备份")}</button>
+        <button type="button" style={{ ...button, borderColor: "#2d6cdf", color: "#2d6cdf" }} onClick={() => { resetScheme(resolved); setConfirmReset(false); }}>{t("恢复默认")}</button>
+        <button type="button" style={button} onClick={() => setConfirmReset(false)}>{t("取消")}</button>
+      </div>}
+    </div>
     {/* Stays mounted and greys out when highlighting is off. Hiding the block
         made the dialog jump on every toggle and hid configuration that is
         still saved, so disabling is both calmer and more honest. */}
-    <fieldset disabled={!settings.highlightEnabled} className="dsh-scheme-fieldset"
-      style={{ border: 0, padding: 0, margin: 0, minWidth: 0, width: "100%", display: "flex", flexDirection: "column",
-        opacity: settings.highlightEnabled ? 1 : 0.55, transition: "opacity .15s ease" }}>
-      <div style={{ position: "relative", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "16px 0 8px", flexShrink: 0 }}>
-        <h4 style={{ fontSize: 13, margin: 0 }}>{t("配色方案")}</h4>
-        <span className="dsh-theme-badge" style={{ marginRight: "auto" }}>
-          <span aria-hidden="true" className="dsh-theme-dot" style={{ background: activeTheme.background, borderColor: activeTheme.foreground }} />
-          {resolved === "light" ? t("浅色主题") : t("深色主题")}
-        </span>
-        <button ref={resetRef} type="button" style={button} aria-expanded={confirmReset} aria-haspopup="dialog"
-          onClick={() => setConfirmReset((open) => !open)}>{t("恢复当前主题默认配色方案")}</button>
-        <span style={{ position: "relative", display: "inline-flex" }}>
-          <button type="button" style={button} onClick={backup}>{t("备份当前配色方案")}</button>
-          {exported && <span className="dsh-export-toast" role="status" aria-live="polite">{t("已导出当前主题配色方案（JSON）。")}</span>}
-        </span>
-        {confirmReset && <div ref={confirmRef} className="dsh-reset-popover" role="alertdialog" aria-label={t("恢复默认配色方案确认")}>
-          <span style={{ flex: "1 1 200px", lineHeight: 1.5 }}>{t("将恢复当前主题的默认配色方案，当前修改会被覆盖。建议先备份。")}</span>
-          <button type="button" style={button} onClick={backup}>{t("先备份")}</button>
-          <button type="button" style={{ ...button, borderColor: "#2d6cdf", color: "#2d6cdf" }} onClick={() => { resetScheme(resolved); setConfirmReset(false); }}>{t("恢复默认")}</button>
-          <button type="button" style={button} onClick={() => setConfirmReset(false)}>{t("取消")}</button>
-        </div>}
-      </div>
+    <fieldset disabled={!settings.highlightEnabled} className="dsh-scheme-fieldset" style={{ display: "contents" }}>
+      <div className="dsh-scheme-fill" style={{ opacity: settings.highlightEnabled ? 1 : 0.55, transition: "opacity .15s ease" }}>
       <p style={{ fontSize: 11, lineHeight: 1.6, margin: "0 0 8px", flexShrink: 0, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("拖动左侧手柄排序（Alt + ↑/↓）。")}</p>
       <div ref={listRef} className="dsh-scheme-list" onClickCapture={onListClickCapture}
         style={{ paddingRight: 6, borderTop: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
@@ -456,6 +490,7 @@ export function TerminalDisplaySettings() {
         <button type="button" disabled={entries.length >= MAX_SCHEME_ENTRIES || Boolean(pendingEntry)} style={{ ...button, marginTop: 0 }}
           title={pendingEntry ? t("先填写新建的配色项") : undefined} onClick={addEntry}>{t("添加配色项")}</button>
         <span style={{ fontSize: 11, lineHeight: 1.5, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("每个标签是一个关键词或正则。Enter 添加，点击标签编辑。")}</span>
+      </div>
       </div>
     </fieldset>
     {/* The preview stays live while the scheme is disabled: it is the sandbox

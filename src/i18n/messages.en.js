@@ -699,6 +699,8 @@ export const en = {
   "启用语义高亮": "Enable semantic highlighting",
   "按关键词、地址、时间等类型着色，保留服务器原有样式。": "Color keywords, addresses and times while preserving server-provided styles.",
   "终端主题": "Terminal theme",
+  "终端背景": "Terminal background",
+  "恢复 DSH 默认背景": "Restore DSH default background",
   "深色": "Dark",
   "浅色": "Light",
   "配色预览": "Color preview",
