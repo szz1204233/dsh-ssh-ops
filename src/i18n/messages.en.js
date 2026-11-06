@@ -775,7 +775,7 @@ export const en = {
   "关键词或正则，Enter 添加": "Keyword or regex; Enter to add",
   "存在无效正则，请点击标签修改。": "An expression is invalid. Click its tag to edit.",
   "拖动左侧手柄排序，点击标签编辑。": "Drag the left handle to reorder; click a tag to edit.",
-  "拖动排序；Alt + ↑/↓ 移动": "Drag to reorder, or Alt + ↑/↓ to move",
+  "鼠标拖动或键盘聚焦后 Alt+↑/↓ 排序": "Drag with the mouse, or focus the handle and press Alt+↑/↓ to reorder",
   "拖动排序 ${label}": "Drag to reorder ${label}",
   "${label} 区分大小写": "${label} case sensitivity",
   "恢复默认配色方案确认": "Confirm restoring the default color scheme",

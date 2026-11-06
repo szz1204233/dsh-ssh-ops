@@ -62,7 +62,7 @@ const STYLES = `
   box-shadow: 0 18px 40px rgba(0,0,0,.38), 0 2px 8px rgba(0,0,0,.24);
   animation: dsh-ghost-in .16s cubic-bezier(.22,.61,.36,1); will-change: left, top; }
 @keyframes dsh-ghost-in { from { opacity: 0; box-shadow: 0 2px 8px rgba(0,0,0,.2); } }
-.dsh-drag-hint { position: fixed; z-index: 2147483001; pointer-events: none; transform: translateX(-50%);
+.dsh-quick-hint { position: fixed; z-index: 2147483001; pointer-events: none; transform: translateX(-50%);
   padding: 4px 8px; font-size: 11px; line-height: 1.6; white-space: nowrap; color: var(--dsh-ssh-ops-text, #d7dbe2);
   background: var(--dsh-ssh-ops-surface, #161b21); border: 1px solid var(--dsh-ssh-ops-border, #3a414b);
   border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,.28); }
@@ -125,13 +125,14 @@ function BackgroundField({ label, value, onChange, onReset, resetLabel }) {
   </span>;
 }
 
-function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePointerDown, onKeyboardMove, onHandleHint, onHandleHintEnd, rowRef }) {
+function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePointerDown, onShowHint, onHideHint, rowRef }) {
   const [hex, setHex] = React.useState(entry.color);
   const toggleId = React.useId();
   React.useEffect(() => setHex(entry.color), [entry.color]);
   // Every control in the first row shares the same box height so the row reads
   // as one strip instead of four differently sized widgets.
   const control = { height: 30, boxSizing: "border-box" };
+  const caseHint = entry.caseSensitive ? t("区分大小写：已开启") : t("区分大小写：已关闭");
   return <div ref={rowRef} className="dsh-scheme-row" data-scheme-id={entry.id} data-drag-source={dragging ? "true" : undefined}
     aria-grabbed={dragging ? "true" : undefined}
     style={{ display: "grid", width: "100%", boxSizing: "border-box",
@@ -141,9 +142,8 @@ function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePoint
       padding: "10px 6px 10px 2px", borderBottom: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
     <button type="button" data-drag-handle className="dsh-drag-handle" aria-label={t(`拖动排序 ${label}`)}
       onPointerDown={onHandlePointerDown}
-      onPointerEnter={onHandleHint} onPointerLeave={onHandleHintEnd}
-      onFocus={onHandleHint} onBlur={onHandleHintEnd}
-      onKeyDown={(event) => { if (event.altKey && ["ArrowUp", "ArrowDown"].includes(event.key)) { event.preventDefault(); onKeyboardMove(event.key === "ArrowUp" ? -1 : 1); } }}
+      onPointerEnter={(event) => onShowHint(event, t("鼠标拖动或键盘聚焦后 Alt+↑/↓ 排序"), true)} onPointerLeave={onHideHint}
+      onFocus={(event) => onShowHint(event, t("鼠标拖动或键盘聚焦后 Alt+↑/↓ 排序"), true)} onBlur={onHideHint}
       style={{ gridArea: "grip" }}>
       <svg width="14" height="16" viewBox="0 0 14 16" fill="currentColor" aria-hidden="true"><circle cx="4" cy="4" r="1"/><circle cx="10" cy="4" r="1"/><circle cx="4" cy="8" r="1"/><circle cx="10" cy="8" r="1"/><circle cx="4" cy="12" r="1"/><circle cx="10" cy="12" r="1"/></svg>
     </button>
@@ -161,7 +161,9 @@ function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePoint
     {/* The wrapper carries the state hint: a disabled control swallows its
         native title tooltip, so the hint has to hang off an element that still
         hovers while the toggle or the whole scheme is disabled. */}
-    <span className="dsh-case-wrap" title={entry.caseSensitive ? t("区分大小写：已开启") : t("区分大小写：已关闭")}
+    <span className="dsh-case-wrap"
+      onPointerEnter={(event) => onShowHint(event, caseHint)} onPointerLeave={onHideHint}
+      onFocus={(event) => onShowHint(event, caseHint)} onBlur={onHideHint} onClick={onHideHint}
       style={{ gridArea: "case", display: "inline-flex" }}>
       <button type="button" className="dsh-case-toggle" disabled={!entry.enabled} aria-label={t(`${label} 区分大小写`)} aria-pressed={entry.caseSensitive}
         onClick={() => onChange({ caseSensitive: !entry.caseSensitive })}>
@@ -348,7 +350,7 @@ export function TerminalDisplaySettings() {
   };
   const onHandlePointerDown = (event, id) => {
     if (event.button !== 0 || !event.isPrimary) return;
-    hideHandleHint();
+    hideQuickHint();
     const element = rows.current.get(id);
     const list = listRef.current;
     if (!element || !list) return;
@@ -448,36 +450,65 @@ export function TerminalDisplaySettings() {
     if (Date.now() < suppressClick.current) { event.preventDefault(); event.stopPropagation(); }
   };
 
-  // The handle hint is rendered as a fixed element on the dialog instead of a
-  // native `title`, whose ~1 s OS delay felt too slow; 160 ms keeps it snappy
-  // and the list's scroll container cannot clip it.
-  const handleHint = React.useRef(undefined);
-  const handleHintTimer = React.useRef(undefined);
-  const hideHandleHint = () => {
-    clearTimeout(handleHintTimer.current);
-    handleHint.current?.remove();
-    handleHint.current = undefined;
+  // Tooltips are rendered as fixed elements on the dialog instead of native
+  // `title`s, whose ~1 s OS delay felt too slow; 160 ms keeps them snappy and
+  // the list's scroll container cannot clip them. Shared by the drag handle and
+  // the case-sensitivity toggle.
+  const quickHint = React.useRef(undefined);
+  const quickHintTimer = React.useRef(undefined);
+  const hintAnchor = React.useRef(null);
+  const clearQuickHint = () => {
+    clearTimeout(quickHintTimer.current);
+    quickHint.current?.remove();
+    quickHint.current = undefined;
   };
-  const showHandleHint = (event) => {
-    const handle = event.currentTarget;
-    clearTimeout(handleHintTimer.current);
-    handleHintTimer.current = setTimeout(() => {
-      if (!handle.isConnected) return;
-      hideHandleHint();
-      const dialog = handle.closest("dialog") ?? document.body;
+  const hideQuickHint = () => { clearQuickHint(); hintAnchor.current = null; };
+  const showQuickHint = (event, text, sortable = false) => {
+    const target = event.currentTarget;
+    hintAnchor.current = sortable ? target : null;
+    clearTimeout(quickHintTimer.current);
+    quickHintTimer.current = setTimeout(() => {
+      if (!target.isConnected) return;
+      clearQuickHint();
+      hintAnchor.current = sortable ? target : null;
+      const dialog = target.closest("dialog") ?? document.body;
       const tip = document.createElement("div");
-      tip.className = "dsh-drag-hint";
+      tip.className = "dsh-quick-hint";
       tip.setAttribute("role", "tooltip");
-      tip.textContent = t("拖动排序；Alt + ↑/↓ 移动");
+      tip.textContent = text;
       dialog.appendChild(tip);
-      handleHint.current = tip;
-      const rect = handle.getBoundingClientRect();
+      quickHint.current = tip;
+      const rect = target.getBoundingClientRect();
       tip.style.left = `${Math.round(rect.left + rect.width / 2)}px`;
       const below = rect.bottom + 6;
       tip.style.top = `${Math.round(below + 30 > window.innerHeight ? rect.top - 32 : below)}px`;
     }, 160);
   };
-  React.useEffect(() => () => { clearTimeout(handleHintTimer.current); handleHint.current?.remove(); }, []);
+  React.useEffect(() => () => { clearTimeout(quickHintTimer.current); quickHint.current?.remove(); }, []);
+
+  // Alt+Up/Down while a scheme row is focused or hovered reorders it. This
+  // listens on the window so the shortcut also works right after hovering the
+  // handle (the dialog autofocus stays on its close button), and it prevents
+  // the browser default: Chrome on macOS maps Option+Up/Down to page scrolling.
+  const keyboardMoveRef = React.useRef(null);
+  keyboardMoveRef.current = onKeyboardMove;
+  React.useEffect(() => {
+    const onKeyDown = (event) => {
+      if (!event.altKey || (event.key !== "ArrowUp" && event.key !== "ArrowDown")) return;
+      const active = document.activeElement;
+      if (active?.matches?.("input, textarea, select")) return;
+      // Only a focused drag handle (or one under the pointer) owns the shortcut:
+      // pressing Alt+arrows in another row control should keep its native meaning.
+      const anchor = (active?.matches?.("[data-drag-handle]") ? active : null) ?? hintAnchor.current;
+      const id = anchor?.closest?.("[data-scheme-id]")?.getAttribute?.("data-scheme-id");
+      if (!id) return;
+      event.preventDefault();
+      event.stopPropagation();
+      keyboardMoveRef.current?.(id, event.key === "ArrowUp" ? -1 : 1);
+    };
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
+  }, []);
 
   return <section aria-label={t("终端显示")} className="dsh-appearance-section">
     <style>{STYLES}</style>
@@ -528,7 +559,7 @@ export function TerminalDisplaySettings() {
     <fieldset disabled={!settings.highlightEnabled} className="dsh-scheme-fieldset" style={{ display: "contents" }}>
       <div className="dsh-scheme-fill" style={{ opacity: settings.highlightEnabled ? 1 : 0.55, transition: "opacity .15s ease" }}>
       <p style={{ fontSize: 11, lineHeight: 1.6, margin: "0 0 8px", flexShrink: 0, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("拖动左侧手柄排序，点击标签编辑。")}</p>
-      <div ref={listRef} className="dsh-scheme-list" onClickCapture={onListClickCapture} onScroll={hideHandleHint}
+      <div ref={listRef} className="dsh-scheme-list" onClickCapture={onListClickCapture} onScroll={hideQuickHint}
         style={{ paddingRight: 6, borderTop: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
         {entries.map((entry) => {
           const custom = !Object.hasOwn(labels, entry.id), label = custom ? (entry.name || t("自定义配色项")) : labels[entry.id];
@@ -536,8 +567,7 @@ export function TerminalDisplaySettings() {
             rowRef={(element) => { if (element) rows.current.set(entry.id, element); else rows.current.delete(entry.id); }}
             onChange={(patch) => change(entry.id, patch)}
             onHandlePointerDown={(event) => onHandlePointerDown(event, entry.id)}
-            onKeyboardMove={(direction) => onKeyboardMove(entry.id, direction)}
-            onHandleHint={showHandleHint} onHandleHintEnd={hideHandleHint}
+            onShowHint={showQuickHint} onHideHint={hideQuickHint}
             onDelete={custom ? () => updateScheme(resolved, (scheme) => scheme.filter((item) => item.id !== entry.id)) : undefined} />;
         })}
         <div ref={indicator} className="dsh-drop-indicator" aria-hidden="true" />
