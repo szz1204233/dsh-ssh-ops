@@ -942,7 +942,7 @@ function BatchDialog({ api, task, onDone }) {
 
   return (
     <div style={panelStyles.dialogBackdrop} onClick={busy ? undefined : onDone}>
-      <div style={{ ...panelStyles.dialog, width: 480 }} onClick={(e) => e.stopPropagation()}>
+      <div style={{ ...panelStyles.dialog, width: 480, background: "var(--dsw-alias-bg-layer-2, #181c22)", color: "var(--dsw-alias-label-primary, #d7dbe2)" }} onClick={(e) => e.stopPropagation()}>
         <div style={panelStyles.dialogTitle}>{t("批量执行")}</div>
         {task.dangerous && (
           <div style={{ fontSize: 12, color: "#ffb86b", background: "rgba(255,184,107,.12)", border: "1px solid #4a3520", borderRadius: 6, padding: "7px 8px" }}>{t(`⚠️ 危险命令：${task.reason}。确认将对勾选的全部服务器执行。`)}</div>
@@ -962,9 +962,9 @@ function BatchDialog({ api, task, onDone }) {
         {results && (
           <div style={{ maxHeight: 300, overflowY: "auto", display: "flex", flexDirection: "column", gap: 6 }}>
             {results.map((r, i) => (
-              <div key={i} style={{ padding: "6px 8px", background: "#101418", borderRadius: 6, border: `1px solid ${r.ok ? "#3fb950" : "#f85149"}` }}>
+              <div key={i} style={{ padding: "6px 8px", background: "var(--dsw-alias-bg-layer-1, #101418)", borderRadius: 6, border: `1px solid ${r.ok ? "#3fb950" : "#f85149"}` }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: r.ok ? "#3fb950" : "#f85149" }}>{r.name || r.host}</div>
-                <pre style={{ fontSize: 11, color: "#d7dbe2", margin: "4px 0 0", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{r.error || r.stdout || t("(无输出)")}</pre>
+                <pre style={{ fontSize: 11, color: "var(--dsw-alias-label-primary, #d7dbe2)", margin: "4px 0 0", whiteSpace: "pre-wrap", wordBreak: "break-all" }}>{r.error || r.stdout || t("(无输出)")}</pre>
               </div>
             ))}
           </div>
@@ -1722,20 +1722,20 @@ const panelStyles = {
   snippetPage: { display: "flex", flex: 1, minHeight: 0, flexDirection: "column", gap: 10, padding: 8, overflow: "hidden" },
   snippetPageHeading: { fontSize: 14, fontWeight: 650 },
   snippetToolbar: { display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  snippetHint: { fontSize: 12, color: "#8b93a1" },
-  snippetAdd: { padding: "4px 7px", background: "transparent", color: "#b9c7e8", border: "1px solid #3a414b", borderRadius: 5, fontSize: 12, cursor: "pointer", flex: "none" },
-  snippetEditor: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, padding: 7, background: "#161b21", border: "1px solid #2d3540", borderRadius: 7 },
-  snippetEditorName: { width: 100, minWidth: 0, padding: "6px 7px", background: "#101418", color: "#d7dbe2", border: "1px solid #3a414b", borderRadius: 5, fontSize: 12 },
-  snippetEditorCommand: { flex: "1 1 180px", minWidth: 0, padding: "6px 7px", background: "#101418", color: "#d7dbe2", border: "1px solid #3a414b", borderRadius: 5, fontSize: 12 },
-  snippetEditorScope: { maxWidth: 130, minWidth: 0, padding: "6px", background: "#101418", color: "#d7dbe2", border: "1px solid #3a414b", borderRadius: 5, fontSize: 12 },
-  snippetSave: { padding: "6px 8px", background: "#2d6cdf", color: "#fff", border: 0, borderRadius: 5, fontSize: 12, cursor: "pointer" },
-  snippetSearch: { width: "100%", boxSizing: "border-box", padding: "8px 9px", background: "#101418", color: "#d7dbe2", border: "1px solid #3a414b", borderRadius: 6, fontSize: 13 },
+  snippetHint: { fontSize: 12, color: "var(--dsw-alias-label-secondary, #8b93a1)" },
+  snippetAdd: { padding: "4px 7px", background: "transparent", color: "var(--dsw-alias-label-primary, #b9c7e8)", border: "1px solid var(--dsw-alias-border-l4, #3a414b)", borderRadius: 5, fontSize: 12, cursor: "pointer", flex: "none" },
+  snippetEditor: { display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, padding: 7, background: "var(--dsw-alias-bg-layer-2, #161b21)", border: "1px solid var(--dsw-alias-border-l3, #2d3540)", borderRadius: 7 },
+  snippetEditorName: { width: 100, minWidth: 0, padding: "6px 7px", background: "var(--dsw-alias-bg-layer-1, #101418)", color: "var(--dsw-alias-label-primary, #d7dbe2)", border: "1px solid var(--dsw-alias-border-l4, #3a414b)", borderRadius: 5, fontSize: 12 },
+  snippetEditorCommand: { flex: "1 1 180px", minWidth: 0, padding: "6px 7px", background: "var(--dsw-alias-bg-layer-1, #101418)", color: "var(--dsw-alias-label-primary, #d7dbe2)", border: "1px solid var(--dsw-alias-border-l4, #3a414b)", borderRadius: 5, fontSize: 12 },
+  snippetEditorScope: { maxWidth: 130, minWidth: 0, padding: "6px", background: "var(--dsw-alias-bg-layer-1, #101418)", color: "var(--dsw-alias-label-primary, #d7dbe2)", border: "1px solid var(--dsw-alias-border-l4, #3a414b)", borderRadius: 5, fontSize: 12 },
+  snippetSave: { padding: "6px 8px", background: "var(--dsw-alias-button-primary-fill, #2d6cdf)", color: "var(--dsw-alias-label-primary-foreground, #fff)", border: 0, borderRadius: 5, fontSize: 12, cursor: "pointer" },
+  snippetSearch: { width: "100%", boxSizing: "border-box", padding: "8px 9px", background: "var(--dsw-alias-bg-layer-1, #101418)", color: "var(--dsw-alias-label-primary, #d7dbe2)", border: "1px solid var(--dsw-alias-border-l4, #3a414b)", borderRadius: 6, fontSize: 13 },
   snippetList: { display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 8, overflowY: "auto", paddingRight: 2 },
-  snippetCard: { display: "flex", minWidth: 0, background: "#161b21", color: "#d7dbe2", border: "1px solid #2d3540", borderRadius: 7, fontSize: 12 },
-  snippetCardMain: { display: "flex", flex: 1, minWidth: 0, flexDirection: "column", gap: 5, padding: "9px 10px", background: "transparent", color: "#d7dbe2", border: 0, textAlign: "left", cursor: "pointer", fontSize: 12 },
-  snippetCustomBadge: { marginLeft: 6, color: "#8b93a1", fontWeight: 400 },
-  snippetDelete: { alignSelf: "flex-start", padding: "6px 8px", background: "transparent", color: "#8b93a1", border: 0, fontSize: 16, cursor: "pointer" },
-  snippetEmpty: { padding: 12, color: "#8b93a1", fontSize: 12, textAlign: "center" },
+  snippetCard: { display: "flex", minWidth: 0, background: "var(--dsw-alias-bg-layer-2, #161b21)", color: "var(--dsw-alias-label-primary, #d7dbe2)", border: "1px solid var(--dsw-alias-border-l3, #2d3540)", borderRadius: 7, fontSize: 12 },
+  snippetCardMain: { display: "flex", flex: 1, minWidth: 0, flexDirection: "column", gap: 5, padding: "9px 10px", background: "transparent", color: "var(--dsw-alias-label-primary, #d7dbe2)", border: 0, textAlign: "left", cursor: "pointer", fontSize: 12 },
+  snippetCustomBadge: { marginLeft: 6, color: "var(--dsw-alias-label-secondary, #8b93a1)", fontWeight: 400 },
+  snippetDelete: { alignSelf: "flex-start", padding: "6px 8px", background: "transparent", color: "var(--dsw-alias-label-secondary, #8b93a1)", border: 0, fontSize: 16, cursor: "pointer" },
+  snippetEmpty: { padding: 12, color: "var(--dsw-alias-label-secondary, #8b93a1)", fontSize: 12, textAlign: "center" },
   connEmpty: { fontSize: 12, color: "#8b93a1", flex: "none", alignSelf: "center" },
   error: {
     padding: "6px 12px",
@@ -1846,11 +1846,11 @@ const panelStyles = {
   proxyJumpToggle: { background: "transparent", border: "none", color: "var(--dsh-ssh-ops-muted, #9aa3af)", fontSize: 12, cursor: "pointer", textAlign: "left", padding: 0 },
   proxyJumpList: { display: "flex", flexDirection: "column", gap: 4, padding: "6px 0" },
   proxyJumpRow: { display: "flex", gap: 4 },
-  batchSection: { display: "flex", flexDirection: "column", gap: 6, padding: "8px 0", borderTop: "1px solid #262b33" },
-  batchTitle: { fontSize: 12, color: "#9aa3af" },
+  batchSection: { display: "flex", flexDirection: "column", gap: 6, padding: "8px 0", borderTop: "1px solid var(--dsw-alias-border-l3, #262b33)" },
+  batchTitle: { fontSize: 12, color: "var(--dsw-alias-label-secondary, #9aa3af)" },
   batchNotice: { padding: "6px 10px", fontSize: 12, color: "#ffb86b", background: "rgba(255,184,107,.1)", borderBottom: "1px solid #3a3420", cursor: "pointer", userSelect: "none" },
   batchList: { display: "flex", flexDirection: "column", gap: 4, maxHeight: 120, overflowY: "auto" },
-  batchItem: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "#d7dbe2", cursor: "pointer" },
+  batchItem: { display: "flex", alignItems: "center", gap: 6, fontSize: 12, color: "var(--dsw-alias-label-primary, #d7dbe2)", cursor: "pointer" },
   pendingModalBackdrop: {
     position: "fixed",
     inset: 0,
@@ -1860,7 +1860,7 @@ const panelStyles = {
     alignItems: "center",
     justifyContent: "center"
   },
-  pendingCommand: { margin: 0, padding: 8, borderRadius: 6, background: "#101418", color: "#f4f6f8", border: "1px solid #262b33", fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: 'Menlo, Monaco, "Courier New", monospace' },
+  pendingCommand: { margin: 0, padding: 8, borderRadius: 6, background: "var(--dsw-alias-bg-layer-1, #101418)", color: "var(--dsw-alias-label-primary, #f4f6f8)", border: "1px solid var(--dsw-alias-border-l3, #262b33)", fontSize: 12, whiteSpace: "pre-wrap", overflowWrap: "anywhere", fontFamily: 'Menlo, Monaco, "Courier New", monospace' },
   // Execution-policy chip: by default a translucent tier dot hugging the
   // bottom-left edge (practically zero occlusion of terminal output); hover or
   // an open menu expands it to the tier name. Colors ride the host's dsw

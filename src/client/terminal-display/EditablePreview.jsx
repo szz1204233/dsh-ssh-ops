@@ -22,7 +22,7 @@ export function EditablePreview({ text, onChange, theme, entries }) {
   const typography = { fontFamily: 'Menlo, Monaco, "Courier New", monospace', fontSize: 12, lineHeight: "20px", tabSize: 4, letterSpacing: "normal" };
   return <>
     {error && <div role="status" style={{ fontSize: 11, color: "#e5484d", margin: "6px 0" }}>{error === "regex-timeout" ? t("正则匹配超时，请修改表达式；终端输入不受影响。") : t("后台高亮暂不可用，终端输入不受影响。")}</div>}
-    <div style={{ position: "relative", flexShrink: 0, height: 188, background: theme.background,
+    <div style={{ position: "relative", flexShrink: 1, minHeight: 140, height: 188, background: theme.background,
     border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 6, overflow: "hidden" }}>
     <div aria-hidden="true" style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
       <pre ref={mirror} style={{ ...typography, margin: 0, padding: 12, color: theme.foreground, whiteSpace: "pre", boxSizing: "border-box", minHeight: "100%", width: "max-content", minWidth: "100%" }}>

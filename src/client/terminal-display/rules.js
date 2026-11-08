@@ -93,6 +93,16 @@ const INFO_WORDS = [
 
 const DEBUG_WORDS = ["debug", "trace", "verbose"];
 
+// Readable default tags, derived only from this project's existing word lists.
+// Structural recognizers remain independent so simplifying tags loses no coverage.
+export const KEYWORD_TEXTS = Object.freeze(Object.fromEntries(Object.entries({
+  error: [...ERROR_PHRASES, ...ERROR_WORDS],
+  success: [...SUCCESS_PHRASES, ...SUCCESS_WORDS],
+  warning: [...WARNING_PHRASES, ...WARNING_WORDS],
+  info: INFO_WORDS,
+  debug: DEBUG_WORDS,
+}).map(([id, words]) => [id, words.join("\n")])));
+
 const MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 const WEEKDAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 

@@ -110,6 +110,7 @@ const expectedPackedFiles = [
   "docs/product-guide.en.md",
   "docs/product-guide.md",
   "docs/terminal-display.md",
+  "docs/terminal-color-scheme.example.json",
   "docs/terminal-appearance-cleanroom.md",
   "icon.svg",
   "lib/client.js",

@@ -5,7 +5,7 @@
 //（显式改过/新增的颜色、匹配文本、自定义规则、背景）按 MIGRATION.md §1.3
 // 原样保留。
 
-import { COLORS, HIGHLIGHT_RULES, colorsForTheme } from "./rules.js";
+import { COLORS, HIGHLIGHT_RULES, KEYWORD_TEXTS, colorsForTheme } from "./rules.js";
 import { DEFAULT_BACKGROUNDS } from "./theme.js";
 
 // ---------------------------------------------------------------------------
@@ -31,7 +31,7 @@ const isBuiltinId = (id) => BUILTIN_IDS.includes(id);
 // 默认匹配文本：由新内置规则集生成（每行一条模式的正则源，SPEC §6）
 // ---------------------------------------------------------------------------
 
-const DEFAULT_TEXTS = Object.freeze(
+const RELEASE_TEXTS = Object.freeze(
   Object.fromEntries(
     BUILTIN_IDS.map((category) => [
       category,
@@ -42,8 +42,7 @@ const DEFAULT_TEXTS = Object.freeze(
   )
 );
 
-const defaultTextFor = (id) => DEFAULT_TEXTS[id];
-
+const DEFAULT_TEXTS = Object.freeze({ ...RELEASE_TEXTS, ...KEYWORD_TEXTS });
 const defaultSchemeCache = new Map();
 
 export function defaultScheme(theme) {
@@ -213,9 +212,10 @@ function customRuleToEntry(rule, theme, overrides) {
   });
 }
 
-// 显式方案逐条 reconcile：颜色保留；旧模式归一化；文本保留（与新默认相同的
-// 文本在 compileScheme 中走自动识别，不同的按用户编辑的纯正则处理）
+// Retain release configurations; legacy literal modes become equivalent regex.
 function reconcileEntry(entry) {
+  // Literal modes are part of the v2 protocol. Keep their readable tags;
+  // compileEntryPattern already escapes them with equivalent semantics.
   return Object.freeze(normalizeLegacyMode(entry));
 }
 
@@ -223,6 +223,9 @@ export function getScheme(settings, theme) {
   const t = theme === "light" ? "light" : "dark";
   const s = settings !== null && typeof settings === "object" ? settings : {};
   const builtinOff = s.builtinEnabled === false;
+  // Missing explicit schemes belong to existing installations. Keep the
+  // previous defaults, including partial color/custom-rule configurations.
+  const defaults = defaultScheme(t);
 
   // 分支 1：显式保存的用户方案（v1 存在完整 schemes[theme]）
   const explicit = normalizeScheme(s.schemes?.[t]);
@@ -242,12 +245,12 @@ export function getScheme(settings, theme) {
 
   // 无任何定制 → 直接获得新默认方案
   if (!hasColors && customRules.length === 0 && !builtinOff) {
-    return defaultScheme(t);
+    return defaults;
   }
 
   const out = [];
   if (!builtinOff) {
-    for (const entry of defaultScheme(t)) {
+    for (const entry of defaults) {
       const override = overrides[entry.id];
       out.push(override !== undefined ? Object.freeze({ ...entry, color: override }) : entry);
     }
@@ -287,12 +290,13 @@ export function compileScheme(entries) {
     // colors 以条目 id 为键（含 custom:* 条目），matcher 用 colors[rule.color] 解析。
     colors[entry.id] = entry.color;
     if (entry.enabled === false) continue;
-    const defaultText = defaultTextFor(entry.id);
-    const isAutomatic =
-      defaultText !== undefined &&
-      entry.caseSensitive === false &&
-      entry.mode !== "word" &&
-      entry.text.trim() === defaultText.trim();
+    // The release's regex tags and the new readable keyword tags resolve to
+    // the same independently designed recognizers. Saved user edits still
+    // compile literally according to their own mode.
+    const isAutomatic = entry.caseSensitive === false && (
+      (entry.mode === "regex" && entry.text.trim() === KEYWORD_TEXTS[entry.id]?.trim()) ||
+      (entry.mode === "regex" && entry.text.trim() === RELEASE_TEXTS[entry.id]?.trim())
+    );
     if (isAutomatic) {
       automatic = true;
       automaticIds.add(entry.id);
@@ -322,7 +326,7 @@ export function compileScheme(entries) {
 // 导入导出（SPEC §6 / MIGRATION §1.4：format 标识 + version 2 往返一致）
 // ---------------------------------------------------------------------------
 
-export function exportScheme(settings, theme) {
+export function exportScheme(settings, theme, name) {
   const t = theme === "light" ? "light" : "dark";
   const s = settings !== null && typeof settings === "object" ? settings : {};
   const rawBg = s.backgrounds?.[t];
@@ -332,6 +336,7 @@ export function exportScheme(settings, theme) {
       format: "dsh-ssh-ops.color-scheme",
       version: 2,
       theme: t,
+      ...(typeof name === "string" && name.trim() && name.trim().length <= 80 && !/[\x00-\x1f\x7f]/.test(name) ? { name: name.trim() } : {}),
       background,
       entries: getScheme(s, t),
     },

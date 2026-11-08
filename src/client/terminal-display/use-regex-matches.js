@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { acquireRegexMatcher } from "./regex-runner.js";
 
-export function useRegexMatches(entries, text) {
+export function useRegexMatches(entries, text, retainPrevious = true) {
   const lease = useRef(null);
   const texts = useMemo(() => text.split("\n"), [text]);
   const [result, setResult] = useState({ lines: [], error: "" });
@@ -10,17 +10,19 @@ export function useRegexMatches(entries, text) {
     return () => { current.release(); lease.current = null; };
   }, []);
   useEffect(() => {
+    if (!entries.length || !text) return;
     let current = true;
     // Keep the previous colours on screen while the next match runs; clearing
     // first makes the preview flicker on every keystroke.
     const timer = setTimeout(() => {
       lease.current?.match(entries, texts).then((value) => {
         if (!current || value.cancelled) return;
-        if (value.error) setResult({ lines: [], error: value.error });
-        else setResult({ lines: value.lines ?? [], error: "" });
+        if (value.error) setResult({ lines: [], error: value.error, entries, text });
+        else setResult({ lines: value.lines ?? [], error: "", entries, text });
       });
     }, 80);
     return () => { current = false; clearTimeout(timer); };
   }, [entries, texts]);
-  return result;
+  return entries.length && text && (retainPrevious || (result.entries === entries && result.text === text))
+    ? result : { lines: [], error: "" };
 }

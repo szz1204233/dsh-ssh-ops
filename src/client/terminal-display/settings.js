@@ -2,6 +2,8 @@ import { COLORS } from "./rules.js";
 import { normalizeCustomRules, MAX_CUSTOM_RULES } from "./custom-rules.js";
 import { normalizeScheme, getScheme, defaultScheme, parseSchemeBackup } from "./scheme.js";
 
+import { normalizeThemeLibrary, findTheme, selectThemePatch, saveThemePatch, importThemePatch, deleteThemePatch, restoreLibraryPatch, newThemeId } from "./theme-library.js";
+
 const KEY = "dsh-ssh-ops.terminal-display.v1";
 const LEGACY_KEY = "dsh-ssh-ops.private-output-highlight.enabled";
 const DEFAULTS = Object.freeze({ highlightEnabled: false, theme: "system" });
@@ -29,7 +31,15 @@ function parse(value) {
         const color = data.backgrounds?.[theme];
         if (typeof color === "string" && /^#[0-9a-f]{6}$/i.test(color)) backgrounds[theme] = color.toLowerCase();
       }
-      return Object.freeze({ ...(data.builtinEnabled === false ? { builtinEnabled: false } : {}),
+      const themeLibrary = normalizeThemeLibrary(data.themeLibrary);
+      const selectedThemes = {};
+      for (const mode of ["dark", "light"]) {
+        const id = data.selectedThemes?.[mode];
+        if (typeof id === "string" && findTheme({ themeLibrary }, mode, id)) selectedThemes[mode] = id;
+      }
+      return Object.freeze({ ...(themeLibrary.length ? { themeLibrary } : {}),
+        ...(Object.keys(selectedThemes).length ? { selectedThemes: Object.freeze(selectedThemes) } : {}),
+        ...(data.builtinEnabled === false ? { builtinEnabled: false } : {}),
         ...(Object.keys(schemes).length ? { schemes: Object.freeze(schemes) } : {}),
         ...(customRules.length ? { customRules: Object.freeze(customRules) } : {}), highlightEnabled: data.highlightEnabled, theme: data.theme,
         ...(Object.keys(backgrounds).length ? { backgrounds: Object.freeze(backgrounds) } : {}),
@@ -44,6 +54,7 @@ function parse(value) {
 export function createDisplaySettings({ storage, eventTarget = globalThis } = {}) {
   let snapshot = DEFAULTS;
   let lastStoredValue;
+  let persistence = Object.freeze({ saved: true, error: "" });
   try {
     storage ??= globalThis.localStorage;
     const saved = storage?.getItem(KEY);
@@ -51,7 +62,7 @@ export function createDisplaySettings({ storage, eventTarget = globalThis } = {}
     snapshot = saved === null || saved === undefined
       ? Object.freeze({ ...DEFAULTS, highlightEnabled: storage?.getItem(LEGACY_KEY) === "true" })
       : parse(saved);
-  } catch {}
+  } catch { persistence = Object.freeze({ saved: false, error: "storage-read-failed" }); }
   const listeners = new Set();
   const apply = (next) => {
     if (JSON.stringify(snapshot) === JSON.stringify(next)) return;
@@ -77,15 +88,26 @@ export function createDisplaySettings({ storage, eventTarget = globalThis } = {}
   };
   return {
     getSnapshot: () => snapshot,
-    update(patch) {
+    getPersistenceSnapshot: () => persistence,
+    update(patch, { requirePersist = false } = {}) {
       refresh();
       const next = parse(JSON.stringify({ ...snapshot, ...(typeof patch === "function" ? patch(snapshot) : patch) }));
+      let failure;
       try {
+        if (!storage?.setItem) throw Error("storage-unavailable");
         const saved = JSON.stringify(next);
-        storage?.setItem(KEY, saved);
-        lastStoredValue = storage?.getItem(KEY);
-      } catch {}
+        storage.setItem(KEY, saved);
+        lastStoredValue = storage.getItem(KEY);
+        if (lastStoredValue !== saved) throw Error("storage-write-failed");
+      } catch (error) { failure = error; }
+      const saved = !failure;
+      if (persistence.saved !== saved) {
+        persistence = Object.freeze({ saved, error: saved ? "" : "storage-write-failed" });
+        for (const listener of listeners) listener();
+      }
+      if (failure && requirePersist) throw Error("settings-not-saved", { cause: failure });
       apply(next);
+      return persistence;
     },
     subscribe(listener) {
       if (listeners.size === 0) {
@@ -106,6 +128,8 @@ const settings = createDisplaySettings();
 export const getDisplaySettings = settings.getSnapshot;
 export const setDisplaySettings = settings.update;
 export const subscribeDisplaySettings = settings.subscribe;
+export const getDisplayPersistence = settings.getPersistenceSnapshot;
+export const retryDisplayPersistence = () => settings.update({}, { requirePersist: true });
 
 export function restoreDisplayBackup(text) {
   const restored = parseSchemeBackup(text);
@@ -184,4 +208,24 @@ export function moveDisplayRule(id, direction) {
     [rules[index], rules[next]] = [rules[next], rules[index]];
     return { customRules: rules };
   });
+}
+
+export function selectDisplayTheme(mode, id) {
+  settings.update(state => selectThemePatch(state, mode, id), { requirePersist: true });
+}
+export function saveDisplayTheme(record, options) {
+  let result;
+  settings.update(state => { result = saveThemePatch(state, record, options); return result.patch; }, { requirePersist: true });
+  return result.record;
+}
+export function importDisplayTheme(text, name, options = {}) {
+  const id = options.targetId ?? newThemeId();
+  settings.update(state => importThemePatch(state, text, name, id, options), { requirePersist: true });
+  return id;
+}
+export function deleteDisplayTheme(mode, id, revision) {
+  settings.update(state => deleteThemePatch(state, mode, id, revision), { requirePersist: true });
+}
+export function restoreDisplayLibrary(text, strategy) {
+  settings.update(state => restoreLibraryPatch(state, text, strategy), { requirePersist: true });
 }

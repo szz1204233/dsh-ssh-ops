@@ -1,9 +1,10 @@
 import * as React from "react";
 import { t } from "../../i18n/core.js";
 import { useLanguage } from "../locale.js";
-import { getDisplaySettings, setDisplaySettings, subscribeDisplaySettings, updateScheme, resetScheme, setDisplayBackground, resetDisplayBackground, restoreDisplayBackup } from "./settings.js";
+import { getDisplaySettings, setDisplaySettings, subscribeDisplaySettings, getDisplayPersistence, retryDisplayPersistence, selectDisplayTheme, importDisplayTheme, deleteDisplayTheme, saveDisplayTheme, restoreDisplayLibrary } from "./settings.js";
 import { terminalTheme, resolveDisplayTheme, subscribeHostTheme, getHostTheme, DEFAULT_BACKGROUNDS } from "./theme.js";
-import { getScheme, exportScheme, parseSchemeBackup, MAX_SCHEME_ENTRIES } from "./scheme.js";
+import { normalizeScheme, MAX_SCHEME_ENTRIES } from "./scheme.js";
+import { themeOptions, selectedThemeId, themeName, allThemes, builtinTheme, exportTheme, exportThemeLibrary, parseImportFile, importConflicts, MAX_LIBRARY_BYTES } from "./theme-library.js";
 import { EditablePreview } from "./EditablePreview.jsx";
 import { PatternTags } from "./PatternTags.jsx";
 import { dropSlot, dropIndex, previewShifts, insertionOffset } from "./drag-order.js";
@@ -20,13 +21,13 @@ const DRAG_THRESHOLD = 6;
  */
 const STYLES = `
 .dsh-scheme-list { position: relative; overscroll-behavior: contain; scrollbar-gutter: stable;
-  flex: 1 1 380px; min-height: 120px; max-height: min(40vh, 380px); overflow-y: auto; overflow-x: hidden; }
+  flex: 1 1 380px; min-height: 110px; max-height: min(40vh, 380px); overflow-y: auto; overflow-x: hidden; }
 /* Height-adaptive shell: the dialog caps its own height, so only the scheme
    list scrolls; the theme switch, add button and preview stay on screen on
    laptop-height (windowed) windows instead of being scrolled out of view. */
-.dsh-appearance-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
-.dsh-appearance-section { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
-  padding: 4px 20px 18px; color: var(--dsh-ssh-ops-text, #d7dbe2); }
+.dsh-appearance-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+.dsh-appearance-section { display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0;
+  padding: 4px 20px 12px; color: var(--dsh-ssh-ops-text, #d7dbe2); }
 /* The fieldset only carries the disabled semantics: display:contents keeps it
    out of layout so .dsh-scheme-fill is a normal flex item that can shrink;
    Chrome will not shrink flex children through a fieldset content box. */
@@ -89,11 +90,51 @@ const STYLES = `
 @keyframes dsh-toast-in { from { opacity: 0; transform: translateY(-4px); } }
 .dsh-scheme-fieldset:disabled input, .dsh-scheme-fieldset:disabled button { cursor: not-allowed; }
 .dsh-case-wrap > button:disabled { pointer-events: none; }
-.dsh-reset-popover { position: absolute; right: 0; top: calc(100% + 6px); z-index: 40; width: min(440px, 100%);
-  display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 12px; font-size: 12px;
-  background: var(--dsh-ssh-ops-surface, #161b21); border: 1px solid #2d6cdf; border-radius: 8px;
-  box-shadow: 0 10px 30px rgba(0,0,0,.28); }
-@media (max-width: 720px) { .dsh-reset-popover { left: 0; right: 0; width: auto; } }
+/* Settings rows: a muted label column and one control strip per row. */
+.dsh-row { display: grid; grid-template-columns: 106px minmax(0, 1fr); align-items: center; column-gap: 12px; min-height: 30px; }
+.dsh-row-label { font-size: 12px; color: var(--dsh-ssh-ops-muted, #8b93a1); }
+.dsh-hint { font-size: 11px; line-height: 1.6; color: var(--dsh-ssh-ops-muted, #8b93a1); }
+.dsh-theme-select { appearance: none; -webkit-appearance: none; min-width: 0; width: 220px; max-width: 100%; height: 28px;
+  padding: 0 26px 0 9px; border-radius: 6px; color: inherit; font-size: 12px; font-family: inherit; cursor: pointer;
+  border: 1px solid var(--dsh-ssh-ops-border, #3a414b); background-color: var(--dsh-ssh-ops-input, #101418);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%238b93a1' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+  background-repeat: no-repeat; background-position: right 9px center; }
+.dsh-theme-select:hover { border-color: var(--dsh-ssh-ops-muted, #8b93a1); }
+.dsh-theme-select:focus-visible { outline: 2px solid #2d6cdf; outline-offset: 1px; }
+.dsh-text-button { padding: 5px 9px; border-radius: 6px; border: 1px solid var(--dsh-ssh-ops-border, #3a414b);
+  background: transparent; color: inherit; font-size: 12px; font-family: inherit; cursor: pointer; }
+.dsh-text-button:hover { background: color-mix(in srgb, var(--dsh-ssh-ops-text, #d7dbe2) 8%, transparent); }
+.dsh-text-button:focus-visible { outline: 2px solid #2d6cdf; outline-offset: 1px; }
+.dsh-text-button:disabled { opacity: .5; cursor: not-allowed; }
+.dsh-primary { border-color: #2d6cdf; background: #2d6cdf; color: #fff; }
+.dsh-primary:hover:not(:disabled) { background: #3b7ae6; }
+.dsh-section-title { font-size: 13px; font-weight: 600; }
+.dsh-pill { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 11px; line-height: 1.7;
+  border: 1px solid var(--dsh-ssh-ops-border, #3a414b); color: var(--dsh-ssh-ops-muted, #8b93a1); white-space: nowrap; }
+.dsh-pill[data-tone="accent"] { border-color: rgba(45,108,223,.5); background: rgba(45,108,223,.12); color: #2d6cdf; }
+/* Each mode's picker is one group so the active badge cannot be read as
+   belonging to the neighbouring scheme. Inactive groups keep the same padding
+   and a transparent border, so switching modes never shifts the row. */
+.dsh-theme-group { display: inline-flex; align-items: center; gap: 8px; min-width: 0;
+  padding: 2px 9px; border-radius: 8px; border: 1px solid transparent; }
+.dsh-theme-group[data-active="true"] { border-color: rgba(45,108,223,.45); background: rgba(45,108,223,.07); }
+@media (prefers-reduced-motion: reduce) {
+  .dsh-scheme-row { transition: none; }
+  .dsh-scheme-ghost { animation: none; transform: none; }
+  .dsh-export-toast { animation: none; }
+}
+.dsh-popover { position: absolute; right: 0; top: calc(100% + 6px); z-index: 42; width: min(420px, 100%);
+  display: flex; flex-direction: column; gap: 8px; padding: 10px 12px; font-size: 12px;
+  background: var(--dsh-ssh-ops-surface, #161b21); color: var(--dsh-ssh-ops-text, #d7dbe2);
+  border: 1px solid #2d6cdf; border-radius: 8px; box-shadow: 0 10px 30px rgba(0,0,0,.28); }
+.dsh-popover-actions { display: flex; gap: 8px; justify-content: flex-end; flex-wrap: wrap; }
+@media (max-width: 720px) {
+  .dsh-row { grid-template-columns: 1fr; row-gap: 4px; padding-bottom: 4px; }
+  .dsh-hint { margin-left: 0 !important; }
+  .dsh-popover { left: 0; right: 0; width: auto; }
+  .dsh-theme-group { width: 100%; }
+  .dsh-theme-select { flex: 1 1 auto; max-width: none; width: auto; }
+}
 @media (prefers-reduced-motion: reduce) {
   .dsh-scheme-row { transition: none; }
   .dsh-scheme-ghost { animation: none; transform: none; }
@@ -106,13 +147,12 @@ const STYLES = `
 `;
 
 /** Background colour swatch + HEX for the active theme, with a reset affordance. */
-function BackgroundField({ label, value, onChange, onReset, resetLabel }) {
+function BackgroundField({ value, onChange, onReset, resetLabel }) {
   const [hex, setHex] = React.useState(value);
-  const id = React.useId();
+  const label = t("终端背景");
   React.useEffect(() => setHex(value), [value]);
   return <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
-    <label htmlFor={id} style={{ color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{label}</label>
-    <input id={id} type="color" aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}
+    <input type="color" aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}
       style={{ width: 30, height: 24, padding: 2, boxSizing: "border-box", background: "transparent",
         border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 4 }} />
     <input aria-label={label + " HEX"} value={hex} maxLength={7} spellCheck={false}
@@ -125,7 +165,7 @@ function BackgroundField({ label, value, onChange, onReset, resetLabel }) {
   </span>;
 }
 
-function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePointerDown, onShowHint, onHideHint, rowRef }) {
+function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePointerDown, onShowHint, onHideHint, rowRef, onPatternDraft }) {
   const [hex, setHex] = React.useState(entry.color);
   const toggleId = React.useId();
   React.useEffect(() => setHex(entry.color), [entry.color]);
@@ -174,107 +214,156 @@ function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePoint
       ? <button type="button" className="dsh-delete-entry" style={{ gridArea: "del", justifySelf: "end" }} aria-label={t(`删除配色项 ${label}`)} title={t(`删除配色项 ${label}`)} onClick={onDelete}>{t("删除")}</button>
       : <span style={{ gridArea: "del" }} />}
     <div style={{ gridArea: "tags", display: "flex", gap: 6, alignItems: "flex-start", minWidth: 0 }}>
-      <div style={{ flex: 1, minWidth: 0 }}><PatternTags label={label} text={entry.text} disabled={!entry.enabled} onChange={(text) => onChange({ text, mode: "regex" })} /></div>
+      <div style={{ flex: 1, minWidth: 0 }}><PatternTags label={label} text={entry.text} disabled={!entry.enabled} onPendingChange={onPatternDraft} onChange={(text) => onChange({ text, mode: "regex" })} /></div>
     </div>
   </div>;
 }
 
-export function TerminalDisplaySettings() {
+export function TerminalDisplaySettings({ registerCloseGuard } = {}) {
   useLanguage();
   const settings = React.useSyncExternalStore(subscribeDisplaySettings, getDisplaySettings);
+  const persistence = React.useSyncExternalStore(subscribeDisplaySettings, getDisplayPersistence);
   React.useSyncExternalStore(subscribeHostTheme, getHostTheme);
-  const [preview, setPreview] = React.useState(DEFAULT_PREVIEW_TEXT);
-  const [importMessage, setImportMessage] = React.useState("");
-  const importRef = React.useRef(null);
-  const [exported, setExported] = React.useState(false);
-  const [confirmReset, setConfirmReset] = React.useState(false);
-  const [dragId, setDragId] = React.useState(null);
-  const exportTimer = React.useRef(null);
-  const showExported = () => {
-    setExported(true);
-    clearTimeout(exportTimer.current);
-    exportTimer.current = setTimeout(() => setExported(false), 3200);
+  const radioName = React.useId(), resolved = resolveDisplayTheme(settings.theme);
+  const labelFor = (record) => record.id === "builtin:dark" ? t("DSH 默认（深色）") : record.id === "builtin:light" ? t("DSH 默认（浅色）")
+    : record.name === "Previous custom dark" ? t("原有深色方案") : record.name === "Previous custom light" ? t("原有浅色方案") : record.name;
+  const makeEditor = (record, copy = false, blank = false) => {
+    const draft = JSON.parse(JSON.stringify(record));
+    const readonly = record.id?.startsWith("builtin:");
+    if (copy || readonly) draft.name = blank ? "" : t(`${labelFor(record)} 副本`);
+    const id = copy || readonly ? null : record.id;
+    return { draft, id, sourceId: copy ? null : record.id, revision: record.revision ?? 0,
+      token: Math.random().toString(36), base: copy ? null : JSON.stringify(draft), original: JSON.parse(JSON.stringify(draft)) };
   };
-  React.useEffect(() => () => clearTimeout(exportTimer.current), []);
-  const radioName = React.useId(), resolved = resolveDisplayTheme(settings.theme), activeTheme = terminalTheme(settings.theme, settings.backgrounds);
-  // The reset affordance only appears once the theme's background differs from
-  // the DSH default, so a pristine install shows just the picker and HEX.
-  const customBackground = typeof settings.backgrounds?.[resolved] === "string"
-    && settings.backgrounds[resolved] !== DEFAULT_BACKGROUNDS[resolved];
-  const entries = React.useMemo(() => getScheme(settings, resolved), [settings, resolved]);
-  const listRef = React.useRef(null);
-  const rows = React.useRef(new Map());
-  const indicator = React.useRef(null);
-  const drag = React.useRef(null);
-  const suppressClick = React.useRef(0);
+  const activeRecord = themeOptions(settings, resolved).find(item => item.id === selectedThemeId(settings, resolved));
+  const [editor, setEditor] = React.useState(() => makeEditor(activeRecord));
+  const editorRef = React.useRef(editor); editorRef.current = editor;
+  const pendingPatterns = React.useRef(new Map());
+  const [, repaintPending] = React.useState(0);
+  const replaceEditor = next => { editorRef.current = next; setEditor(next); };
+  const isDirty = () => pendingPatterns.current.size > 0 || editorRef.current.base === null || editorRef.current.base !== JSON.stringify(editorRef.current.draft);
+  const patternDraft = (id, value) => {
+    if (value) pendingPatterns.current.set(id, value); else pendingPatterns.current.delete(id);
+    repaintPending(count => count + 1);
+  };
+  const [notice, setNotice] = React.useState("");
+  const [managerOpen, setManagerOpen] = React.useState(false);
+  const [transition, setTransition] = React.useState(null);
+  const transitionRef = React.useRef(null);
+  React.useEffect(() => { if (transition) { transitionRef.current?.scrollIntoView?.({ block: "nearest" }); transitionRef.current?.focus?.(); } }, [transition]);
+  const [pendingImport, setPendingImport] = React.useState(null);
+  const [pendingDelete, setPendingDelete] = React.useState(null);
+  const [confirmReset, setConfirmReset] = React.useState(null);
+  const [preview, setPreview] = React.useState(DEFAULT_PREVIEW_TEXT);
+  const [dragId, setDragId] = React.useState(null);
+  const importRef = React.useRef(null), importSeq = React.useRef(0);
+  const listRef = React.useRef(null), rows = React.useRef(new Map()), indicator = React.useRef(null);
+  const drag = React.useRef(null), suppressClick = React.useRef(0);
+  const dirty = isDirty();
+  const entries = editor.draft.entries;
+  const activeTheme = terminalTheme(editor.draft.theme, { [editor.draft.theme]: editor.draft.background });
+  const updateDraft = patch => { const current = editorRef.current; replaceEditor({ ...current, draft: { ...current.draft, ...patch } }); };
+  const updateEntries = update => { const current = editorRef.current; replaceEditor({ ...current, draft: { ...current.draft,
+    entries: normalizeScheme(update(current.draft.entries)) ?? current.draft.entries } }); };
   const labels = { error: t("错误与否定"), success: t("成功与肯定"), warning: t("警示状态"), info: t("信息关键词"),
     heading: t("地址、时间与符号"), number: t("数字"), string: t("字符串与路径"), option: t("命令选项"), command: t("命令名称"), debug: t("文件类型"), prompt: t("提示符") };
-  const change = (id, patch) => updateScheme(resolved, (scheme) => scheme.map((entry) => entry.id === id ? { ...entry, ...patch } : entry));
-
-  const move = (id, target, side = "before") => updateScheme(resolved, (scheme) => {
-    const moved = scheme.find((entry) => entry.id === id);
+  const errorText = error => ({
+    "invalid-pattern": t("存在无效正则，请修正后保存；草稿仍保留。"),
+    "library-too-large": t("主题库文件过大，请分别导出主题。"),
+    "settings-not-saved": t("未能写入本机，修改尚未保存。请重试，或先导出草稿。"),
+    "theme-changed": t("主题已在另一窗口修改。请另存为新主题，或放弃草稿后重新打开。"),
+    "theme-name-conflict": t("主题名称已存在，请修改名称或使用另存为。"),
+    "invalid-theme-name": t("请输入有效的主题名称（最多 80 个字符）。"),
+    "theme-library-full": t("主题库已满，请先删除不需要的主题。"),
+    "theme-not-found": t("主题已被删除，请另存为新主题。"),
+  }[error.message] ?? t("操作失败：主题或备份文件无效。"));
+  const attempt = action => { try { action(); return true; } catch (error) { setNotice(errorText(error)); return false; } };
+  const requestTransition = (action, options = {}) => { if (isDirty()) setTransition({ ...options, run: action }); else action(); };
+  const openEditor = (record, copy = false, blank = false) => requestTransition(() => {
+    const latest = record.id?.startsWith("builtin:") ? record : allThemes(getDisplaySettings()).find(item => item.id === record.id) ?? record;
+    pendingPatterns.current.clear(); replaceEditor(makeEditor(latest, copy, blank)); setNotice(""); setPendingImport(null);
+  });
+  React.useEffect(() => {
+    registerCloseGuard?.(resume => { if (!isDirty()) return true; setTransition({ run: resume }); return false; });
+    return () => registerCloseGuard?.(null);
+  }, [dirty, registerCloseGuard]);
+  const composedDraft = () => ({ ...editorRef.current.draft, entries: editorRef.current.draft.entries.map(entry => pendingPatterns.current.has(entry.id) ? { ...entry, text: pendingPatterns.current.get(entry.id).text } : entry) });
+  React.useEffect(() => {
+    const protectReload = event => { if (isDirty()) { event.preventDefault(); event.returnValue = ""; } };
+    window.addEventListener("beforeunload", protectReload);
+    return () => window.removeEventListener("beforeunload", protectReload);
+  }, []);
+  const saveEditor = (asNew = false) => {
+    let saved;
+    if (!attempt(() => {
+      const current = editorRef.current;
+      if ([...pendingPatterns.current.values()].some(value => !value.valid)) throw Error("invalid-pattern");
+      const draft = composedDraft();
+      saved = saveDisplayTheme(draft, !asNew && current.id ? { id: current.id, expectedRevision: current.revision } : {});
+    })) return false;
+    pendingPatterns.current.clear(); replaceEditor(makeEditor(saved)); setNotice(t(`已保存主题：${saved.name}`)); return true;
+  };
+  const discardEditor = () => {
+    pendingPatterns.current.clear();
+    if (editor.base !== null) replaceEditor({ ...editor, token: Math.random().toString(36), draft: JSON.parse(JSON.stringify(editor.original)) });
+    else replaceEditor(makeEditor(activeRecord));
+    setNotice(t("已放弃未保存的修改。"));
+  };
+  const change = (id, patch) => updateEntries(scheme => scheme.map(entry => entry.id === id ? { ...entry, ...patch } : entry));
+  const move = (id, target, side = "before") => updateEntries(scheme => {
+    const moved = scheme.find(entry => entry.id === id);
     if (!moved || id === target) return scheme;
-    const next = scheme.filter((entry) => entry.id !== id), index = next.findIndex((entry) => entry.id === target);
+    const next = scheme.filter(entry => entry.id !== id), index = next.findIndex(entry => entry.id === target);
     if (index < 0) return scheme;
     next.splice(index + (side === "after" ? 1 : 0), 0, moved); return next;
   });
-  const backup = () => {
-    const url = URL.createObjectURL(new Blob([exportScheme(getDisplaySettings(), resolved)], { type: "application/json" }));
+  const download = (text, name) => {
+    const url = URL.createObjectURL(new Blob([text], { type: "application/json" }));
     const link = document.createElement("a"); link.href = url;
-    link.download = `dsh-ssh-ops-${resolved}-scheme-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
-    document.body.appendChild(link); link.click(); link.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    showExported();
+    const safe = name.replace(/[\\/:*?"<>|]/g, "_").slice(0, 90);
+    link.download = `${safe}-${new Date().toISOString().replace(/[:.]/g, "-")}.json`;
+    document.body.appendChild(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
   };
-  const restoreBackup = async (event) => {
-    const file = event.target.files?.[0];
-    event.target.value = "";
+  const exportRecord = record => attempt(() => { download(exportTheme(record), record.name || "theme"); setNotice(t("已导出单个主题，包含背景、配色和关键词规则。")); });
+  const backupLibrary = () => attempt(() => {
+    download(exportThemeLibrary(getDisplaySettings()), "dsh-theme-library"); setNotice(t("已备份全部已保存主题、深浅选择和显示设置；不含未保存草稿。"));
+  });
+  const restoreBackup = async event => {
+    const file = event.target.files?.[0]; event.target.value = "";
     if (!file) return;
+    const seq = ++importSeq.current;
     try {
-      if (file.size > 1024 * 1024) throw new Error("invalid-backup");
-      const text = await file.text();
-      const restored = parseSchemeBackup(text);
-      const name = restored.theme === "light" ? t("浅色主题") : t("深色主题");
-      if (!globalThis.confirm?.(t(`导入将覆盖${name}的配色和背景，继续吗？`))) return;
-      restoreDisplayBackup(text);
-      setImportMessage(t("已导入配色方案。"));
-    } catch { setImportMessage(t("导入失败：文件不是有效的配色方案备份。")); }
+      if (file.size > MAX_LIBRARY_BYTES) throw Error("invalid-backup");
+      const text = await file.text(); if (seq !== importSeq.current) return;
+      const parsed = parseImportFile(text, file.name ?? "");
+      const conflicts = parsed.kind === "theme" ? importConflicts(getDisplaySettings(), parsed.record) : [];
+      setPendingImport({ ...parsed, text, name: parsed.record?.name ?? "", strategy: "new", targetId: conflicts[0]?.id ?? "", targetRevision: conflicts[0]?.revision, conflicts });
+      setNotice(""); setConfirmReset(null); setPendingDelete(null);
+    } catch (error) { if (seq === importSeq.current) setNotice(errorText(error)); }
   };
-
-  const resetRef = React.useRef(null);
-  const confirmRef = React.useRef(null);
-  const pendingEntry = entries.find((entry) => !Object.hasOwn(labels, entry.id) && !(entry.text || "").trim());
-  // The reset confirmation is a floating popover anchored to its button, so
-  // opening it never reflows the rows below (dismiss on outside click/Esc).
-  React.useEffect(() => {
-    if (!confirmReset) return undefined;
-    const onPointerDown = (event) => {
-      if (confirmRef.current?.contains(event.target) || resetRef.current?.contains(event.target)) return;
-      setConfirmReset(false);
+  const confirmImport = () => {
+    const operation = () => {
+      const ok = attempt(() => {
+        if (pendingImport.kind === "library") restoreDisplayLibrary(pendingImport.text, pendingImport.strategy === "replace" ? "replace" : "merge");
+        else {
+          const target = allThemes(settings).find(item => item.id === pendingImport.targetId);
+          if (pendingImport.strategy === "update" && !target) throw Error("theme-not-found");
+          importDisplayTheme(pendingImport.text, pendingImport.name, pendingImport.strategy === "update" ? { targetId: target?.id, expectedRevision: pendingImport.targetRevision } : {});
+        }
+      });
+      if (ok) { setPendingImport(null); setNotice(t("导入完成。新增主题可在深色和浅色下拉框中选择。")); }
+      return ok;
     };
-    const onKeyDown = (event) => { if (event.key === "Escape") { event.preventDefault(); setConfirmReset(false); } };
-    document.addEventListener("pointerdown", onPointerDown, true);
-    document.addEventListener("keydown", onKeyDown, true);
-    return () => {
-      document.removeEventListener("pointerdown", onPointerDown, true);
-      document.removeEventListener("keydown", onKeyDown, true);
-    };
-  }, [confirmReset]);
+    if (pendingImport.kind === "library" && pendingImport.strategy === "replace") requestTransition(() => { if (operation()) { const state = getDisplaySettings(), mode = resolveDisplayTheme(state.theme); pendingPatterns.current.clear(); replaceEditor(makeEditor(themeOptions(state, mode).find(item => item.id === selectedThemeId(state, mode)))); } }, { destructive: true });
+    else operation();
+  };
+  const pendingEntry = entries.find(entry => !Object.hasOwn(labels, entry.id) && !entry.text.trim());
   const addEntry = () => {
-    // Only one unnamed/unconfigured draft at a time: the button stays disabled
-    // until the new entry has at least one match tag.
-    if (pendingEntry) { rows.current.get(pendingEntry.id)?.querySelector("[data-pattern-input]")?.focus(); return; }
-    if (entries.length >= MAX_SCHEME_ENTRIES) return;
-    const id = `custom:${globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`}`;
-    updateScheme(resolved, (scheme) => [...scheme, { id, name: "", enabled: true,
-      color: scheme.find((entry) => entry.id === "error")?.color ?? "#f44747", mode: "regex", caseSensitive: false, text: "" }]);
-    // The new row is appended at the bottom (outside the visible list window):
-    // scroll it into view and focus its first tag input.
-    requestAnimationFrame(() => requestAnimationFrame(() => {
-      const list = listRef.current;
-      if (list) list.scrollTop = list.scrollHeight;
-      rows.current.get(id)?.querySelector("[data-pattern-input]")?.focus();
-    }));
+    if (pendingEntry || entries.length >= MAX_SCHEME_ENTRIES) return;
+    const id = `custom:${globalThis.crypto?.randomUUID?.() ?? Date.now() + "-" + Math.random().toString(36).slice(2)}`;
+    updateEntries(scheme => [...scheme, { id, name: "", color: "#ef6f6c", enabled: true, text: "", mode: "regex", caseSensitive: false }]);
+    requestAnimationFrame(() => requestAnimationFrame(() => { if (listRef.current) listRef.current.scrollTop = listRef.current.scrollHeight;
+      rows.current.get(id)?.querySelector("[data-pattern-input]")?.focus(); }));
   };
 
   // ---- pointer drag reorder -------------------------------------------------
@@ -526,83 +615,154 @@ export function TerminalDisplaySettings() {
     return () => window.removeEventListener("keydown", onKeyDown, true);
   }, []);
 
+
   return <section aria-label={t("终端显示")} className="dsh-appearance-section">
     <style>{STYLES}</style>
-    <p style={{ margin: "0 0 10px", flexShrink: 0, fontSize: 12, lineHeight: 1.6, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("适用于所有 SSH 终端，修改后自动保存。")}</p>
-    <fieldset style={{ border: 0, padding: 0, margin: "0 0 8px", flexShrink: 0, display: "flex", flexWrap: "wrap", alignItems: "center", gap: "8px 18px" }}>
-      <legend style={{ float: "left", fontSize: 12, color: "var(--dsh-ssh-ops-muted, #8b93a1)", marginRight: 2 }}>{t("终端主题")}</legend>
-      {[["system", t("跟随 DSH")], ["dark", t("深色")], ["light", t("浅色")]].map(([value, label]) => <label key={value} style={{ display: "flex", alignItems: "center", gap: 4, cursor: "pointer", fontSize: 12 }}>
-        <input type="radio" name={radioName} value={value} checked={settings.theme === value} onChange={() => { setDisplaySettings({ theme: value }); setExported(false); setConfirmReset(false); }} />{label}
-      </label>)}
-      <span aria-hidden="true" style={{ width: 1, height: 15, background: "var(--dsh-ssh-ops-border, #3a414b)" }} />
-      <label style={{ display: "flex", alignItems: "center", gap: 6, fontSize: 13, cursor: "pointer" }}>
-        <input type="checkbox" checked={settings.highlightEnabled} onChange={(event) => { setDisplaySettings({ highlightEnabled: event.target.checked }); setConfirmReset(false); setExported(false); }} />{t("启用语义高亮")}
-      </label>
-    </fieldset>
-    {/* Theme-scoped row: the heading, badge and terminal background stay usable
-        while semantic highlighting is off; only the scheme actions dim below. */}
-    <div style={{ position: "relative", display: "flex", flexWrap: "wrap", alignItems: "center", gap: 8, margin: "16px 0 8px", flexShrink: 0 }}>
-      <h4 style={{ fontSize: 13, margin: 0 }}>{t("配色方案")}</h4>
-      <span className="dsh-theme-badge">
-        <span aria-hidden="true" className="dsh-theme-dot" style={{ background: activeTheme.background, borderColor: activeTheme.foreground }} />
-        {resolved === "light" ? t("浅色主题") : t("深色主题")}
-      </span>
-      {/* The terminal background belongs to the theme, not to highlighting: it
-          stays editable while the scheme list below is dimmed and disabled. */}
-      <BackgroundField label={t("终端背景")} value={activeTheme.background}
-        onChange={(color) => setDisplayBackground(resolved, color)}
-        onReset={customBackground ? () => resetDisplayBackground(resolved) : undefined} resetLabel={t("恢复 DSH 默认背景")} />
-      <div style={{ display: "inline-flex", alignItems: "center", gap: 8, marginLeft: "auto",
-        opacity: settings.highlightEnabled ? 1 : 0.55, transition: "opacity .15s ease" }}>
-        <button ref={resetRef} type="button" style={button} disabled={!settings.highlightEnabled}
-          aria-expanded={confirmReset} aria-haspopup="dialog"
-          onClick={() => setConfirmReset((open) => !open)}>{t("恢复当前主题默认配色方案")}</button>
-        <span style={{ position: "relative", display: "inline-flex" }}>
-          <button type="button" style={button} disabled={!settings.highlightEnabled} onClick={backup}>{t("备份当前配色方案")}</button>
-          {exported && <span className="dsh-export-toast" role="status" aria-live="polite">{t("已导出当前主题配色方案（JSON）。")}</span>}
-        </span>
+    <div style={{ display: "contents" }} inert={transition ? "" : undefined} aria-hidden={transition ? true : undefined}>
+    <div className="dsh-row"><span className="dsh-row-label">{t("显示模式")}</span>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
+        {[["system", t("跟随 DSH")], ["dark", t("深色")], ["light", t("浅色")]].map(([value, label]) => <label key={value}>
+          <input type="radio" name={radioName} checked={settings.theme === value} onChange={() => setDisplaySettings({ theme: value })} />{label}</label>)}
+        <label><input type="checkbox" checked={settings.highlightEnabled} onChange={event => setDisplaySettings({ highlightEnabled: event.target.checked })} />{t("启用语义高亮")}</label>
       </div>
-      <input ref={importRef} type="file" accept="application/json,.json" onChange={restoreBackup} style={{ display: "none" }} />
-      <button type="button" style={button} onClick={() => importRef.current?.click()}>{t("导入配色备份")}</button>
-      {importMessage && <span role="status">{importMessage}</span>}
-      {confirmReset && <div ref={confirmRef} className="dsh-reset-popover" role="alertdialog" aria-label={t("恢复默认配色方案确认")}>
-        <span style={{ flex: "1 1 200px", lineHeight: 1.5 }}>{t("将恢复当前主题的默认配色方案，当前修改会被覆盖。建议先备份。")}</span>
-        <button type="button" style={button} onClick={backup}>{t("先备份")}</button>
-        <button type="button" style={{ ...button, borderColor: "#2d6cdf", color: "#2d6cdf" }} onClick={() => { resetScheme(resolved); setConfirmReset(false); }}>{t("恢复默认")}</button>
-        <button type="button" style={button} onClick={() => setConfirmReset(false)}>{t("取消")}</button>
-      </div>}
     </div>
-    {/* Stays mounted and greys out when highlighting is off. Hiding the block
-        made the dialog jump on every toggle and hid configuration that is
-        still saved, so disabling is both calmer and more honest. */}
-    <fieldset disabled={!settings.highlightEnabled} className="dsh-scheme-fieldset" style={{ display: "contents" }}>
-      <div className="dsh-scheme-fill" style={{ opacity: settings.highlightEnabled ? 1 : 0.55, transition: "opacity .15s ease" }}>
-      <p style={{ fontSize: 11, lineHeight: 1.6, margin: "0 0 8px", flexShrink: 0, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>{t("拖动左侧手柄排序，点击标签编辑。")}</p>
-      <div ref={listRef} className="dsh-scheme-list" onClickCapture={onListClickCapture} onScroll={hideQuickHint}
-        style={{ paddingRight: 6, borderTop: "1px solid var(--dsh-ssh-ops-border, #3a414b)" }}>
-        {entries.map((entry) => {
-          const custom = !Object.hasOwn(labels, entry.id), label = custom ? (entry.name || t("自定义配色项")) : labels[entry.id];
-          return <SchemeEntry key={`${resolved}:${entry.id}`} entry={entry} label={label} dragging={dragId === entry.id}
-            rowRef={(element) => { if (element) rows.current.set(entry.id, element); else rows.current.delete(entry.id); }}
-            onChange={(patch) => change(entry.id, patch)}
-            onHandlePointerDown={(event) => onHandlePointerDown(event, entry.id)}
-            onShowHint={showQuickHint} onHideHint={hideQuickHint}
-            onDelete={custom ? () => updateScheme(resolved, (scheme) => scheme.filter((item) => item.id !== entry.id)) : undefined} />;
-        })}
-        <div ref={indicator} className="dsh-drop-indicator" aria-hidden="true" />
+    <div className="dsh-row"><span className="dsh-row-label">{t("应用主题")}</span>
+      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>{["dark", "light"].map(mode => <label key={mode} className="dsh-theme-group" data-active={mode === resolved ? "true" : undefined}>
+        {mode === "dark" ? t("深色") : t("浅色")}
+        <select className="dsh-theme-select" aria-label={mode === "dark" ? t("深色主题") : t("浅色主题")} value={selectedThemeId(settings, mode)}
+          onChange={event => attempt(() => selectDisplayTheme(mode, event.target.value))}>
+          {themeOptions(settings, mode).map(item => <option key={item.id} value={item.id}>{labelFor(item)}</option>)}
+        </select>{mode === resolved && <span className="dsh-pill">{t("当前显示")}</span>}
+      </label>)}</div>
+    </div>
+    <p className="dsh-hint">{t("所有自定义主题均可用于深色或浅色；主题内的模式只是推荐值。应用主题不改变编辑中的草稿。")}</p>
+    {!persistence.saved && <div role="alert" style={{ padding: 8, border: "1px solid #e5484d", borderRadius: 6 }}>
+      {t("本次修改尚未写入本机，重新加载可能丢失。可重试保存或导出草稿。")}
+      <button type="button" style={button} onClick={() => { if (pendingImport) confirmImport(); else if (isDirty()) saveEditor(); else attempt(retryDisplayPersistence); }}>{t("重试保存")}</button>
+    </div>}
+    {notice && <div role="status" style={{ padding: "6px 0", fontSize: 12 }}>{notice}</div>}
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "8px 0" }}>
+      <button type="button" className="dsh-text-button" onClick={() => openEditor(builtinTheme(resolved), true, true)}>{t("新建主题")}</button>
+      <button type="button" className="dsh-text-button" onClick={() => setManagerOpen(value => !value)} aria-expanded={managerOpen}>{t("管理主题")}</button>
+      <button type="button" className="dsh-text-button" onClick={backupLibrary}>{t("备份全部主题")}</button>
+      <button type="button" className="dsh-text-button" onClick={() => { ++importSeq.current; setPendingImport(null); importRef.current?.click(); }}>{t("导入主题或备份")}</button>
+      <button type="button" className="dsh-text-button" onClick={() => setConfirmReset(resolved)}>{t("恢复默认主题")}</button>
+      <input ref={importRef} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={restoreBackup}
+        onCancel={event => { event.stopPropagation(); ++importSeq.current; setPendingImport(null); setNotice(t("已取消选择文件。")); }} />
+    </div>
+    {managerOpen && <div aria-label={t("主题列表")} style={{ maxHeight: 200, overflow: "auto", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 6, padding: 8 }}>
+      {[builtinTheme("dark"), builtinTheme("light"), ...allThemes(settings)].map(item => <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+        <span style={{ flex: "1 1 160px", overflowWrap: "anywhere" }}>{labelFor(item)}{item.id.startsWith("builtin:") ? t("（内置，只读）") : ""}</span>
+        <button type="button" style={button} onClick={() => openEditor(item)}>{item.id.startsWith("builtin:") ? t("复制后编辑") : t("编辑")}</button>
+        <button type="button" style={button} onClick={() => openEditor(item, true)}>{t("复制")}</button>
+        <button type="button" style={button} onClick={() => exportRecord(item)}>{t("导出")}</button>
+        {!item.id.startsWith("builtin:") && <>
+          <button type="button" style={button} onClick={() => openEditor(item)}>{t("重命名")}</button>
+          <button type="button" style={button} onClick={() => requestTransition(() => setPendingDelete(allThemes(getDisplaySettings()).find(record => record.id === item.id) ?? item), { destructive: editor.id === item.id })}>{t("删除")}</button>
+        </>}
+      </div>)}
+    </div>}
+    {pendingDelete && <div role="alertdialog" aria-label={t("删除主题确认")} style={{ padding: 10, border: "1px solid #e5484d", borderRadius: 6 }}>
+      <p>{t(`删除主题：${pendingDelete.name}？使用它的深色或浅色显示将改用对应的 DSH 默认主题。其他主题不会被覆盖。`)}</p>
+      <button type="button" style={button} onClick={() => {
+        if (attempt(() => deleteDisplayTheme(null, pendingDelete.id, pendingDelete.revision))) {
+          if (editor.id === pendingDelete.id) { pendingPatterns.current.clear(); replaceEditor(makeEditor(builtinTheme(resolved))); }
+          setPendingDelete(null); setNotice(t("主题已删除。"));
+        }
+      }}>{t("确认删除")}</button>
+      <button type="button" style={button} onClick={() => setPendingDelete(null)}>{t("取消")}</button>
+    </div>}
+    {confirmReset && <div role="alertdialog" aria-label={t("恢复默认主题确认")} style={{ padding: 10, border: "1px solid #2d6cdf", borderRadius: 6 }}>
+      <p>{confirmReset === "dark" ? t("将深色显示改用 DSH 默认主题，已保存的自定义主题仍保留。") : t("将浅色显示改用 DSH 默认主题，已保存的自定义主题仍保留。")}</p>
+      <button type="button" style={button} onClick={() => { if (attempt(() => selectDisplayTheme(confirmReset, `builtin:${confirmReset}`))) setConfirmReset(null); }}>{t("恢复默认")}</button>
+      <button type="button" style={button} onClick={() => setConfirmReset(null)}>{t("取消")}</button>
+    </div>}
+    {pendingImport && <div role="dialog" aria-label={t("确认导入主题")} style={{ padding: 10, border: "1px solid #2d6cdf", borderRadius: 6, margin: "8px 0" }}>
+      {pendingImport.kind === "theme" ? <>
+        <p>{t("单主题文件。新增导入不会自动应用；更新已应用的主题会同步更新其显示。")}</p>
+        <label>{t("主题名称")}<input aria-label={t("自定义主题名称")} value={pendingImport.name} maxLength={80} style={field}
+          onChange={event => setPendingImport({ ...pendingImport, name: event.target.value })} /></label>
+        <p>{pendingImport.record.theme === "dark" ? t("推荐深色，可在两个下拉框中选择。") : t("推荐浅色，可在两个下拉框中选择。")}
+          {t(`背景：${pendingImport.record.background}；规则数：${pendingImport.record.entries.length}`)}</p>
+        {pendingImport.conflicts.length > 0 && <p>{t("发现已有同名、同标识或同内容主题。可新增副本、更新已有主题，或跳过。")}</p>}
+        <label><input type="radio" checked={pendingImport.strategy === "new"} onChange={() => setPendingImport({ ...pendingImport, strategy: "new" })} />{t("新增副本")}</label>
+        <label><input type="radio" checked={pendingImport.strategy === "update"} onChange={() => setPendingImport({ ...pendingImport, strategy: "update" })} />{t("更新已有主题")}</label>
+        {pendingImport.strategy === "update" && <select aria-label={t("更新目标主题")} value={pendingImport.targetId} style={field}
+          onChange={event => { const target = allThemes(settings).find(item => item.id === event.target.value); setPendingImport({ ...pendingImport, targetId: target?.id ?? "", targetRevision: target?.revision }); }}>
+          <option value="">{t("选择更新目标")}</option>{allThemes(settings).map(item => <option key={item.id} value={item.id}>{labelFor(item)}</option>)}
+        </select>}
+      </> : <>
+        <p>{t(`完整主题库备份，包含 ${pendingImport.themes.length} 个自定义主题。`)}</p>
+        <label><input type="radio" checked={pendingImport.strategy !== "replace"} onChange={() => setPendingImport({ ...pendingImport, strategy: "new" })} />{t("合并导入，不覆盖现有主题或显示选择")}</label><br />
+        <label><input type="radio" checked={pendingImport.strategy === "replace"} onChange={() => setPendingImport({ ...pendingImport, strategy: "replace" })} />{t("完整恢复：替换主题库、深浅选择和显示设置。建议先备份当前主题库。")}</label>
+      </>}
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+        <button type="button" style={button} disabled={pendingImport.kind === "theme" && (!themeName(pendingImport.name) || (pendingImport.strategy === "update" && !pendingImport.targetId))} onClick={confirmImport}>{t("确认导入")}</button>
+        <button type="button" style={button} onClick={() => { setPendingImport(null); setNotice(t("已跳过导入。")); }}>{t("跳过／取消")}</button>
       </div>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginTop: 10, flexShrink: 0 }}>
-        <button type="button" disabled={entries.length >= MAX_SCHEME_ENTRIES || Boolean(pendingEntry)} style={{ ...button, marginTop: 0 }}
-          title={pendingEntry ? t("先填写新建的配色项") : undefined} onClick={addEntry}>{t("添加配色项")}</button>
+    </div>}
+    <div style={{ borderTop: "1px solid var(--dsh-ssh-ops-border, #3a414b)", marginTop: 12, paddingTop: 10 }}>
+      <div className="dsh-row"><span className="dsh-row-label">{t("正在编辑")}</span>
+        <select aria-label={t("编辑目标主题")} style={field} value={editor.sourceId ?? "new"} onChange={event => {
+          const record = [builtinTheme("dark"), builtinTheme("light"), ...allThemes(settings)].find(item => item.id === event.target.value);
+          if (record) openEditor(record);
+        }}>
+          {!editor.sourceId && <option value="new">{t("未保存的新主题")}</option>}
+          {[builtinTheme("dark"), builtinTheme("light"), ...allThemes(settings)].map(item => <option key={item.id} value={item.id}>{labelFor(item)}</option>)}
+        </select>
       </div>
+      <div className="dsh-row"><label className="dsh-row-label" htmlFor={`${radioName}-name`}>{t("主题名称")}</label>
+        <input id={`${radioName}-name`} aria-label={t("编辑主题名称")} style={field} maxLength={80} value={editor.draft.name} onChange={event => updateDraft({ name: event.target.value })} />
+      </div>
+      <div className="dsh-row"><span className="dsh-row-label">{t("推荐模式")}</span>
+        <select aria-label={t("推荐模式")} style={field} value={editor.draft.theme} onChange={event => updateDraft({ theme: event.target.value })}>
+          <option value="dark">{t("深色")}</option><option value="light">{t("浅色")}</option>
+        </select>
+      </div>
+      <div className="dsh-row"><span className="dsh-row-label">{t("草稿背景")}</span><BackgroundField value={editor.draft.background}
+        onChange={background => updateDraft({ background })} onReset={() => updateDraft({ background: DEFAULT_BACKGROUNDS[editor.draft.theme] })} resetLabel={t("恢复推荐模式的默认背景")} /></div>
+      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "8px 0" }}>
+        <button type="button" style={button} disabled={!dirty || !themeName(editor.draft.name)} onClick={() => saveEditor()}>{editor.id ? t("保存主题") : t("保存为新主题")}</button>
+        <button type="button" style={button} disabled={!themeName(editor.draft.name)} onClick={() => saveEditor(true)}>{t("另存为新主题")}</button>
+        <button type="button" style={button} disabled={!dirty} onClick={discardEditor}>{t("放弃修改")}</button>
+        <button type="button" style={button} disabled={!themeName(editor.draft.name)} onClick={() => exportRecord({ ...composedDraft(), id: editor.id ?? undefined })}>{dirty ? t("导出草稿") : t("导出此主题")}</button>
+        <span className="dsh-pill">{dirty ? t("未保存") : t("已保存／未修改")}</span>
+      </div>
+      <p className="dsh-hint">{t("下方仅预览编辑草稿，不影响实时终端。保存已应用的自定义主题后，使用该主题的深浅显示会一起更新。完整备份不包含未保存草稿。")}</p>
+    </div>
+    <fieldset className="dsh-scheme-fieldset">
+      <div className="dsh-scheme-fill">
+        <p className="dsh-hint">{t("拖动左侧手柄排序，点击标签编辑。")}</p>
+        <div ref={listRef} className="dsh-scheme-list" onClickCapture={onListClickCapture} onScroll={hideQuickHint}>
+          {entries.map(entry => {
+            const custom = !Object.hasOwn(labels, entry.id), label = custom ? entry.name || t("自定义配色项") : labels[entry.id];
+            return <SchemeEntry key={`${editor.token}:${entry.id}`} entry={entry} label={label} dragging={dragId === entry.id}
+              rowRef={element => { if (element) rows.current.set(entry.id, element); else rows.current.delete(entry.id); }}
+              onPatternDraft={value => patternDraft(entry.id, value)} onChange={patch => change(entry.id, patch)} onHandlePointerDown={(event) => onHandlePointerDown(event, entry.id)} onShowHint={showQuickHint} onHideHint={hideQuickHint}
+              onDelete={custom ? () => updateEntries(scheme => scheme.filter(item => item.id !== entry.id)) : undefined} />;
+          })}<div ref={indicator} className="dsh-drop-indicator" aria-hidden="true" />
+        </div>
+        <button type="button" style={{ ...button, alignSelf: "flex-start", marginTop: 8 }} disabled={Boolean(pendingEntry) || entries.length >= MAX_SCHEME_ENTRIES} onClick={addEntry}>{t("添加配色项")}</button>
       </div>
     </fieldset>
-    {/* The preview stays live while the scheme is disabled: it is the sandbox
-        for trying colors, so editing and coloring must work even when semantic
-        highlighting is off (that is exactly when a user wants to evaluate a
-        scheme before turning it on). */}
-    <div style={{ fontSize: 12, margin: "16px 0 8px", flexShrink: 0 }}>{t("配色预览")}</div>
-    <EditablePreview text={preview} onChange={setPreview} theme={activeTheme}
-      entries={settings.highlightEnabled ? entries : []} />
+    <div className="dsh-section-title" style={{ margin: "12px 0 8px" }}>{t("草稿预览")}</div>
+    <EditablePreview text={preview} onChange={setPreview} theme={activeTheme} entries={entries} />
+    </div>
+    {transition && <div ref={transitionRef} tabIndex={-1} role="alertdialog" aria-modal="true" aria-label={t("未保存的主题修改")}
+      onKeyDown={event => {
+        if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); setTransition(null); }
+        if (event.key === "Tab") {
+          const buttons = [...event.currentTarget.querySelectorAll("button:not(:disabled)")];
+          const first = buttons[0], last = buttons.at(-1), active = document.activeElement;
+          if (event.shiftKey && (active === first || active === event.currentTarget)) { event.preventDefault(); last?.focus(); }
+          else if (!event.shiftKey && active === last) { event.preventDefault(); first?.focus(); }
+        }
+      }} style={{ position: "fixed", top: "50%", left: "50%", transform: "translate(-50%, -50%)", width: "min(560px, calc(100vw - 64px))", boxSizing: "border-box", padding: 16, zIndex: 100, background: "var(--dsh-ssh-ops-surface, #161b21)", color: "var(--dsh-ssh-ops-text, #d7dbe2)", boxShadow: "0 0 0 100vmax rgba(0,0,0,.3)", border: "2px solid #2d6cdf", borderRadius: 8 }}>
+      <p>{transition.destructive ? t("此操作会删除或替换已保存主题。请先导出草稿，或放弃修改后继续。") : t("当前草稿尚未保存。请选择保存后继续、放弃修改后继续，或取消。")}</p>
+      <button type="button" style={button} onClick={() => { const ok = transition.destructive ? exportRecord({ ...composedDraft(), id: editor.id ?? undefined }) : saveEditor(); if (ok) { const run = transition.run; setTransition(null); run(); } }}>{transition.destructive ? t("导出草稿后继续") : t("保存后继续")}</button>
+      <button type="button" style={button} onClick={() => { const run = transition.run; discardEditor(); setTransition(null); run(); }}>{t("放弃修改后继续")}</button>
+      <button type="button" style={button} onClick={() => setTransition(null)}>{t("取消")}</button>
+    </div>}
   </section>;
+
 }

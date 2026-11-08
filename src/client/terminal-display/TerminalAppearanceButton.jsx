@@ -6,18 +6,28 @@ import { TerminalDisplaySettings } from "./TerminalDisplaySettings.jsx";
 function AppearanceDialog({ onClose }) {
   const ref = React.useRef(null);
   const titleId = React.useId();
-  const close = () => { ref.current?.close(); onClose(); };
+  const closeGuard = React.useRef(null);
+  const finishClose = () => { ref.current?.close(); onClose(); };
+  const close = () => { if (!closeGuard.current || closeGuard.current(finishClose)) finishClose(); };
   React.useEffect(() => {
     const dialog = ref.current;
     dialog.showModal();
     return () => { if (dialog.open) dialog.close(); };
   }, []);
-  return <dialog ref={ref} aria-labelledby={titleId} onCancel={(event) => { event.preventDefault(); close(); }}
+  return <dialog ref={ref} aria-labelledby={titleId} onCancel={(event) => {
+    // File inputs also emit a bubbling cancel event when their picker closes.
+    // Only the dialog's own Escape request may close the appearance window.
+    if (event.target !== event.currentTarget) return;
+    event.preventDefault(); close();
+  }}
     onClick={(event) => { if (event.target === event.currentTarget) close(); }}
-    style={{ padding: 0, width: "min(1120px, calc(100vw - 32px))", maxWidth: "calc(100vw - 24px)", maxHeight: "min(840px, calc(100vh - 24px))",
+    style={{ padding: 0, width: "min(1120px, calc(100vw - 32px))", maxWidth: "calc(100vw - 24px)",
+      height: "min(840px, calc(100vh - 24px))", maxHeight: "min(840px, calc(100vh - 24px))",
       border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 10, color: "var(--dsh-ssh-ops-text, #d7dbe2)",
       background: "var(--dsh-ssh-ops-surface, #161b21)", boxShadow: "0 12px 40px rgba(0,0,0,.22)", overflow: "hidden" }}>
-    <div onClick={(event) => event.stopPropagation()} style={{ display: "flex", flexDirection: "column", maxHeight: "min(840px, calc(100vh - 24px))", minHeight: 0 }}>
+    {/* Fixed height: toggling highlighting or any list change must never resize
+        the window, so the dialog always occupies the same capped box. */}
+    <div onClick={(event) => event.stopPropagation()} style={{ display: "flex", flexDirection: "column", height: "100%", minHeight: 0 }}>
       <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px 10px", flexShrink: 0 }}>
         <h3 id={titleId} style={{ fontSize: 14, fontWeight: 600, margin: 0 }}>{t("终端外观")}</h3>
         <button type="button" autoFocus onClick={close} aria-label={t("关闭外观设置")} title={t("关闭")}
@@ -25,7 +35,7 @@ function AppearanceDialog({ onClose }) {
       </div>
       {/* The body fills the capped dialog height so the scheme list, not the
           whole dialog, becomes the scroll area (laptop-height windows). */}
-      <div className="dsh-appearance-body"><TerminalDisplaySettings /></div>
+      <div className="dsh-appearance-body"><TerminalDisplaySettings registerCloseGuard={guard => { closeGuard.current = guard; }} /></div>
     </div>
   </dialog>;
 }

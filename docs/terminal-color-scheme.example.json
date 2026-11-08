@@ -1,0 +1,96 @@
+{
+  "format": "dsh-ssh-ops.color-scheme",
+  "version": 2,
+  "theme": "dark",
+  "background": "#101418",
+  "entries": [
+    {
+      "id": "error",
+      "color": "#ef6f6c",
+      "enabled": true,
+      "text": "not supported\nno such file or directory\noperation not permitted\nauthentication failed\ncannot open\npermission denied\naccess denied\nconnection refused\ntimed out\nfatal\npanic\npanicked\nfailed\nfailure\nerror\ndenied\ninvalid\ncannot\nincorrect\nrefused\nunreachable\ntimeout\naborted\nmissing",
+      "mode": "regex",
+      "caseSensitive": false
+    },
+    {
+      "id": "success",
+      "color": "#53c177",
+      "enabled": true,
+      "text": "in sync\nexit code\nsuccess\nsuccessful\nsucceeded\npassed\nok\nyes\nvalid\ncompleted\ncomplete\ndone\nactive",
+      "mode": "regex",
+      "caseSensitive": false
+    },
+    {
+      "id": "warning",
+      "color": "#e2a944",
+      "enabled": true,
+      "text": "rate limit reached\nconnection closed\nlink down\nwarn\nwarning\nsudo\nterminated\nskipped\nkilled\nprivileged",
+      "mode": "regex",
+      "caseSensitive": false
+    },
+    {
+      "id": "info",
+      "color": "#7aa2f0",
+      "enabled": true,
+      "text": "info\nlogin\nconnection\npassword\nreplication\nauthenticated\naccepted\nlistening\nready",
+      "mode": "regex",
+      "caseSensitive": false
+    },
+    {
+      "id": "heading",
+      "color": "#45bdd1",
+      "enabled": true,
+      "text": "(?<![\\w:])(?:[0-9a-fA-F]{0,4}:){2,}[0-9a-fA-F]{0,4}(?![\\w:])\n\\b\\d{1,3}(?:\\.\\d{1,3}){3}\\b\n\\b[0-9a-fA-F]{2}(?::[0-9a-fA-F]{2}){5}\\b\n\\b\\d{4}[-/]\\d{2}[-/]\\d{2}\\b\n\\b\\d{1,2}:\\d{2}(?::\\d{2})?\\b\n\\b(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec|Mon|Tue|Wed|Thu|Fri|Sat|Sun)\\b\n->|&&|[|&><;(),[\\]]",
+      "mode": "regex",
+      "caseSensitive": false
+    },
+    {
+      "id": "number",
+      "color": "#dd8a4e",
+      "enabled": true,
+      "text": "\\b(?=[0-9a-fA-F]*[0-9])(?=[0-9a-fA-F]*[a-fA-F])[0-9a-fA-F]{4,}\\b\n\\b\\d+(?:\\.\\d+)?%?(?![\\d.])",
+      "mode": "regex",
+      "caseSensitive": false
+    },
+    {
+      "id": "string",
+      "color": "#3fb896",
+      "enabled": true,
+      "text": "\"(?:[^\"\\\\\\n]|\\\\.)*\"|'(?:[^'\\\\\\n]|\\\\.)*'\n(?<![\\w/])(?<![$#%>]\\s)(?<![|&]\\s)(?<!(?:sudo|doas)\\s)(?:~(?=\\/)|\\.{1,2}(?=\\/))?\\/[^\\s|&;)\"']*\n(?<=-> )[^\\s|&;]+",
+      "mode": "regex",
+      "caseSensitive": false
+    },
+    {
+      "id": "option",
+      "color": "#9a8cf0",
+      "enabled": true,
+      "text": "(?<![\\w-])(?:-{1,2}[\\w-]+|[^\\s=|&()]+)=(?=[\\w./~@-]+)\n(?<![\\w-])-{1,2}[\\w-]+",
+      "mode": "regex",
+      "caseSensitive": false
+    },
+    {
+      "id": "command",
+      "color": "#aab4c8",
+      "enabled": true,
+      "text": "(?<=^\\S{1,24}(?:\\s{1,3})?[$#%>]\\s|[|&]\\s)(?!(?:sudo|doas)\\b)[^\\s|&;]+|(?<=(?:sudo|doas)\\s+(?:(?:-[A-Za-z]*[ughpCTrt]\\s+\\S+|-\\S+)\\s+)*)(?!-)[^\\s|&;]+",
+      "mode": "regex",
+      "caseSensitive": false
+    },
+    {
+      "id": "prompt",
+      "color": "#c78ef0",
+      "enabled": true,
+      "text": "(?<=^\\S{1,24}(?:\\s{1,3})?)[$#%>](?=\\s)",
+      "mode": "regex",
+      "caseSensitive": false
+    },
+    {
+      "id": "debug",
+      "color": "#8a919e",
+      "enabled": true,
+      "text": "debug\ntrace\nverbose",
+      "mode": "regex",
+      "caseSensitive": false
+    }
+  ]
+}
