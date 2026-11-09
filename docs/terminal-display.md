@@ -1,22 +1,25 @@
 # Terminal themes and display settings
 
-Open **Terminal appearance** with the palette button on the SSH server bar. Its settings apply across connections, split panes, retained terminals and recorded logs in the current browser origin. The window keeps a fixed viewport-capped height and scrollable content. No server connection is required.
+Open **Terminal appearance** with the palette button on the SSH server bar. Its settings apply across connections, split panes, retained terminals and recorded logs in the current browser origin. The window keeps a fixed viewport-capped height. On desktop, only the keyword list scrolls; narrow or very short windows and expanded management/import panels allow the dialog body to scroll. No server connection is required.
 
 ## Apply a saved theme
 
-**Follow DSH / Dark / Light** controls the live display mode. The independent **Dark theme** and **Light theme** dropdowns assign a saved theme to each mode. The initial built-ins are DSH default dark and light. Every custom or imported theme appears in **both dropdowns**: the theme's own mode is only a recommendation, not an assignment restriction. Applying a theme changes its complete background, semantic colors and keyword/regex rules together. It does not toggle global semantic highlighting or discard the editor draft.
+**Follow DSH / Dark / Light** remain radio buttons. Immediately after them, a single editable theme combobox shows the current name: type to rename, or click its arrow / use Arrow keys and Enter to select a saved theme. Selecting a built-in from the other mode also switches display mode. There is no separate theme-name field or recommended-mode control. Dark and light assignments remain independent; custom themes can be used in either mode. Switching theme or display mode protects unsaved edits.
 
 The existing 16 ANSI colors, cursor and selection behavior are unchanged. Custom terminal backgrounds choose a readable base foreground by luminance; user-defined semantic colors are unrestricted. Semantic highlighting is off by default for new preferences. Draft preview remains colored even while live highlighting is off.
 
 ## Create, edit, copy and rename
 
-1. **New theme** starts a separate, unnamed draft based on the current mode's DSH default. Enter its name, background, recommended mode, colors and rules.
-2. **Manage themes** lists built-ins and every custom theme. Edit, copy, export, rename or delete a listed custom theme without first applying it. Built-ins are read-only: editing or copying one creates a new draft.
-3. The **Theme to edit** selector is independent of live display mode. Changing the live mode never changes the draft's editing target.
-4. **Save theme** updates the custom theme's stable ID; **Save new theme** and **Save as new theme** create independent named records. Duplicate new names receive a suffix. Rename by editing its name and saving. New themes are not automatically applied.
-5. **Discard changes** restores the editor baseline. Switching editing targets, starting another draft or closing the window with unsaved changes offers Save and continue / Discard and continue / Cancel. Pending tag input is included even before Enter; invalid regex input blocks saving without discarding it.
+1. A fresh profile offers only DSH default dark and light. Stored appearances identical to a DSH default do not generate migrated custom themes. A differing existing appearance is preserved as **Custom theme**.
+2. Changing a default theme's background, name, colors or keyword rules automatically detaches a draft named **Custom theme**. A name typed into the combobox overrides that automatic name. The two built-ins are never overwritten.
+3. **Save theme** saves and applies the draft. The first save creates the detached custom theme; later edits update that same theme ID without adding another record. Saving and applying are atomic. The second row contains **Theme background**, unsaved status, Save, **Create theme copy**, and More actions.
+4. **Create theme copy** explicitly saves and selects an independent copy, including unsaved edits. Built-in copies start as **Custom theme**; custom copies receive a copy suffix. Duplicate names receive a numeric suffix. There are no separate New theme or Save as actions.
+5. **Discard changes** reloads the applied theme. Switching themes or modes, or closing with unsaved changes offers Save and continue / Discard and continue / Cancel. Pending tag input is included even before Enter; invalid regex blocks saving without discarding it.
+6. **More actions → Manage themes** offers export and deletion. Choose themes with the combobox; rename them directly in that same control.
 
-No shared per-mode working copy exists. Editing A and then B cannot overwrite A. Saving a theme that is applied in both dropdowns updates both live assignments; saving another theme does not affect either assignment. If the same saved theme was changed in another window, its revision check blocks a stale save; Save as can preserve the local draft.
+Body text and controls use 12px text, inputs and buttons are 30px high, and sections use a 12px gap with 20px horizontal padding. Background has no reset shortcut; choose a DSH default to restore its appearance.
+
+No shared per-mode working copy exists. Editing A and then B cannot overwrite A. Saving a theme assigned to both modes updates both live assignments. Revision checks block stale saves after another window changes a theme; Create theme copy preserves the local edits.
 
 Each theme includes its background, entries, colors, pattern text, order, per-entry enabled and case-sensitivity switches. Keywords and regex use one tag input, without a matching-mode dropdown. Enter/blur commits a tag, clicking a tag edits it, and × removes it. Drag the handle or use Alt+Up/Down to reorder. Limits remain 43 entries, 64 tags per entry, 512 characters per tag and 8192 characters per entry. Up to 64 custom themes can be stored, with reserved slots for upgraded release configurations.
 
@@ -30,7 +33,7 @@ Each theme includes its background, entries, colors, pattern text, order, per-en
 
 Import accepts a single v2 theme or a complete library backup. Before confirmation, a single theme shows its name, recommended mode, background and rule count. Names are editable. A matching ID, name or appearance is disclosed; an exact stable ID is preferred when suggesting an update target.
 
-- **Add a copy** creates a new independent theme, without automatically applying it. Imported themes are available in both mode dropdowns.
+- **Add a copy** creates a new independent theme, without automatically applying it. Imported themes are available in the theme dropdown for either display mode.
 - **Update existing theme** explicitly chooses the saved record to update, preserving its ID. If it is currently applied, its users in both modes update together. A conflicting newer revision blocks the update.
 - **Skip / cancel** makes no changes.
 - For a complete backup, **Merge** adds themes without overwriting existing themes or display assignments. Repeating the same merge does not create repeated conflicting copies.
@@ -42,7 +45,7 @@ File selection cancellation, confirmation cancellation, success and failure all 
 
 Delete any custom theme from Manage themes without activating it. If the theme is assigned to dark or light display, confirmation explains that affected assignments will fall back to the respective DSH default. Other themes and edits are never written into a shared replacement slot. An unsaved draft of the theme being deleted can be exported first. Built-ins cannot be renamed, overwritten or deleted.
 
-**Restore default theme** changes only the captured live-mode assignment to its DSH default. It does not erase saved custom themes or the independently selected editor target.
+Choose **DSH default** in the current theme dropdown for that display mode to restore that assignment. Saved custom themes and the independently selected editor target remain available.
 
 ## Persistence and upgrade policy
 

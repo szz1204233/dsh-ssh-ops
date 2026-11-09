@@ -2,15 +2,15 @@ import * as React from "react";
 import { t } from "../../i18n/core.js";
 import { useLanguage } from "../locale.js";
 import { getDisplaySettings, setDisplaySettings, subscribeDisplaySettings, getDisplayPersistence, retryDisplayPersistence, selectDisplayTheme, importDisplayTheme, deleteDisplayTheme, saveDisplayTheme, restoreDisplayLibrary } from "./settings.js";
-import { terminalTheme, resolveDisplayTheme, subscribeHostTheme, getHostTheme, DEFAULT_BACKGROUNDS } from "./theme.js";
+import { terminalTheme, resolveDisplayTheme, subscribeHostTheme, getHostTheme } from "./theme.js";
 import { normalizeScheme, MAX_SCHEME_ENTRIES } from "./scheme.js";
 import { themeOptions, selectedThemeId, themeName, allThemes, builtinTheme, exportTheme, exportThemeLibrary, parseImportFile, importConflicts, MAX_LIBRARY_BYTES } from "./theme-library.js";
 import { EditablePreview } from "./EditablePreview.jsx";
 import { PatternTags } from "./PatternTags.jsx";
 import { dropSlot, dropIndex, previewShifts, insertionOffset } from "./drag-order.js";
 import { DEFAULT_PREVIEW_TEXT } from "./preview-text.js";
-const button = { padding: "5px 8px", borderRadius: 5, cursor: "pointer", fontSize: 12, color: "inherit", background: "transparent", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)" };
-const field = { boxSizing: "border-box", minWidth: 0, padding: "6px 8px", borderRadius: 5, fontSize: 12, color: "inherit",
+const button = { height: 30, boxSizing: "border-box", fontFamily: "inherit", padding: "0 8px", borderRadius: 5, cursor: "pointer", fontSize: 12, color: "inherit", background: "transparent", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)" };
+const field = { height: 30, fontFamily: "inherit", boxSizing: "border-box", minWidth: 0, padding: "6px 8px", borderRadius: 5, fontSize: 12, color: "inherit",
   background: "var(--dsh-ssh-ops-input, #101418)", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)" };
 const DRAG_THRESHOLD = 6;
 
@@ -21,13 +21,13 @@ const DRAG_THRESHOLD = 6;
  */
 const STYLES = `
 .dsh-scheme-list { position: relative; overscroll-behavior: contain; scrollbar-gutter: stable;
-  flex: 1 1 380px; min-height: 110px; max-height: min(40vh, 380px); overflow-y: auto; overflow-x: hidden; }
+  flex: 1 1 0; min-height: 110px; overflow-y: auto; overflow-x: hidden; }
 /* Height-adaptive shell: the dialog caps its own height, so only the scheme
    list scrolls; the theme switch, add button and preview stay on screen on
    laptop-height (windowed) windows instead of being scrolled out of view. */
-.dsh-appearance-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow-y: auto; }
-.dsh-appearance-section { display: flex; flex-direction: column; flex: 0 0 auto; min-height: 0;
-  padding: 4px 20px 12px; color: var(--dsh-ssh-ops-text, #d7dbe2); }
+.dsh-appearance-body { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0; overflow: hidden; }
+.dsh-appearance-section { display: flex; flex-direction: column; flex: 1 1 auto; min-height: 0;
+  font-size: 12px; line-height: 1.5; gap: 12px; padding: 0 20px 16px; color: var(--dsh-ssh-ops-text, #d7dbe2); }
 /* The fieldset only carries the disabled semantics: display:contents keeps it
    out of layout so .dsh-scheme-fill is a normal flex item that can shrink;
    Chrome will not shrink flex children through a fieldset content box. */
@@ -43,7 +43,7 @@ const STYLES = `
   .dsh-appearance-body { overflow-y: auto; }
   .dsh-appearance-section { flex: 0 0 auto; }
   .dsh-scheme-fill { flex: 0 0 auto; }
-  .dsh-scheme-list { flex: 0 0 auto; }
+  .dsh-scheme-list { flex: 0 0 240px; }
 }
 .dsh-scheme-list[data-dragging="true"] { user-select: none; -webkit-user-select: none; }
 .dsh-scheme-row { position: relative; touch-action: pan-y; transition: transform .22s cubic-bezier(.22,.61,.36,1), background-color .16s ease, box-shadow .16s ease, border-color .16s ease; }
@@ -53,7 +53,7 @@ const STYLES = `
   background: color-mix(in srgb, rgba(45,108,223,.10)) !important; }
 .dsh-scheme-row[data-drag-source="true"] > * { visibility: hidden; }
 .dsh-scheme-row[data-drop-target="true"] { box-shadow: inset 0 0 0 1px color-mix(in srgb, rgba(45,108,223,.55)); border-radius: 8px; }
-.dsh-drag-handle { display: grid; place-items: center; width: 28px; height: 34px; padding: 0; border: 0; border-radius: 6px;
+.dsh-drag-handle { display: grid; place-items: center; width: 28px; height: 30px; padding: 0; border: 0; border-radius: 6px;
   background: transparent; color: var(--dsh-ssh-ops-muted, #8b93a1); cursor: grab; touch-action: none; }
 .dsh-drag-handle:hover, .dsh-drag-handle:focus-visible { background: color-mix(in srgb, var(--dsh-ssh-ops-text, #d7dbe2) 10%, transparent); color: var(--dsh-ssh-ops-text, #d7dbe2); }
 .dsh-drag-handle:active, .dsh-scheme-list[data-dragging="true"] .dsh-drag-handle { cursor: grabbing; }
@@ -73,11 +73,11 @@ const STYLES = `
 .dsh-scheme-list[data-dragging="true"] { cursor: grabbing; }
 .dsh-scheme-list[data-settling="true"] .dsh-scheme-row { transition: none !important; }
 .dsh-delete-entry { display: inline-flex; align-items: center; justify-content: center; height: 30px; padding: 0 8px;
-  border: 1px solid rgba(229,72,77,.5); border-radius: 5px; background: transparent; color: #e5484d; font-size: 11px; cursor: pointer; }
+  border: 1px solid rgba(229,72,77,.5); border-radius: 5px; background: transparent; color: #e5484d; font-size: 12px; cursor: pointer; }
 .dsh-delete-entry:hover, .dsh-delete-entry:focus-visible { background: rgba(229,72,77,.12); border-color: #e5484d; }
 .dsh-case-toggle { display: inline-flex; align-items: center; gap: 4px; height: 30px; padding: 0 8px; border-radius: 5px;
   border: 1px solid var(--dsh-ssh-ops-border, #3a414b); background: transparent; color: var(--dsh-ssh-ops-muted, #8b93a1);
-  font-size: 11px; cursor: pointer; white-space: nowrap; }
+  font-size: 12px; cursor: pointer; white-space: nowrap; }
 .dsh-case-toggle[aria-pressed="true"] { background: #2d6cdf; border-color: #2d6cdf; color: #fff; }
 .dsh-case-toggle:disabled { cursor: not-allowed; opacity: .5; }
 .dsh-theme-badge { display: inline-flex; align-items: center; gap: 6px; padding: 1px 8px; border-radius: 999px; white-space: nowrap;
@@ -92,16 +92,16 @@ const STYLES = `
 .dsh-case-wrap > button:disabled { pointer-events: none; }
 /* Settings rows: a muted label column and one control strip per row. */
 .dsh-row { display: grid; grid-template-columns: 106px minmax(0, 1fr); align-items: center; column-gap: 12px; min-height: 30px; }
-.dsh-row-label { font-size: 12px; color: var(--dsh-ssh-ops-muted, #8b93a1); }
-.dsh-hint { font-size: 11px; line-height: 1.6; color: var(--dsh-ssh-ops-muted, #8b93a1); }
-.dsh-theme-select { appearance: none; -webkit-appearance: none; min-width: 0; width: 220px; max-width: 100%; height: 28px;
+.dsh-row-label { white-space: nowrap; font-size: 12px; color: var(--dsh-ssh-ops-muted, #8b93a1); }
+.dsh-hint { margin: 0; font-size: 12px; line-height: 1.5; color: var(--dsh-ssh-ops-muted, #8b93a1); }
+.dsh-theme-select { appearance: none; -webkit-appearance: none; min-width: 0; width: 220px; max-width: 100%; height: 30px;
   padding: 0 26px 0 9px; border-radius: 6px; color: inherit; font-size: 12px; font-family: inherit; cursor: pointer;
   border: 1px solid var(--dsh-ssh-ops-border, #3a414b); background-color: var(--dsh-ssh-ops-input, #101418);
   background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'><path d='M1 1l4 4 4-4' fill='none' stroke='%238b93a1' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
   background-repeat: no-repeat; background-position: right 9px center; }
 .dsh-theme-select:hover { border-color: var(--dsh-ssh-ops-muted, #8b93a1); }
 .dsh-theme-select:focus-visible { outline: 2px solid #2d6cdf; outline-offset: 1px; }
-.dsh-text-button { padding: 5px 9px; border-radius: 6px; border: 1px solid var(--dsh-ssh-ops-border, #3a414b);
+.dsh-text-button { display: inline-flex; align-items: center; justify-content: center; box-sizing: border-box; height: 30px; padding: 0 10px; border-radius: 6px; border: 1px solid var(--dsh-ssh-ops-border, #3a414b);
   background: transparent; color: inherit; font-size: 12px; font-family: inherit; cursor: pointer; }
 .dsh-text-button:hover { background: color-mix(in srgb, var(--dsh-ssh-ops-text, #d7dbe2) 8%, transparent); }
 .dsh-text-button:focus-visible { outline: 2px solid #2d6cdf; outline-offset: 1px; }
@@ -112,12 +112,44 @@ const STYLES = `
 .dsh-pill { display: inline-flex; align-items: center; padding: 1px 8px; border-radius: 999px; font-size: 11px; line-height: 1.7;
   border: 1px solid var(--dsh-ssh-ops-border, #3a414b); color: var(--dsh-ssh-ops-muted, #8b93a1); white-space: nowrap; }
 .dsh-pill[data-tone="accent"] { border-color: rgba(45,108,223,.5); background: rgba(45,108,223,.12); color: #2d6cdf; }
-/* Each mode's picker is one group so the active badge cannot be read as
-   belonging to the neighbouring scheme. Inactive groups keep the same padding
-   and a transparent border, so switching modes never shifts the row. */
-.dsh-theme-group { display: inline-flex; align-items: center; gap: 8px; min-width: 0;
-  padding: 2px 9px; border-radius: 8px; border: 1px solid transparent; }
-.dsh-theme-group[data-active="true"] { border-color: rgba(45,108,223,.45); background: rgba(45,108,223,.07); }
+.dsh-display-toolbar, .dsh-theme-toolbar { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.dsh-display-toolbar > label, .dsh-theme-toolbar > label, .dsh-theme-background { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.dsh-display-toolbar > label:last-child { margin-left: auto; }
+.dsh-display-toolbar input[type="checkbox"] { margin: 0; }
+.dsh-display-modes { display: flex; align-items: center; gap: 12px; }
+.dsh-display-modes > label { display: inline-flex; align-items: center; gap: 4px; white-space: nowrap; }
+.dsh-display-modes input { margin: 0; }
+.dsh-theme-combo { position: relative; display: flex; flex: 1 1 220px; min-width: 160px; }
+.dsh-theme-combo > input { width: 100%; padding-right: 30px !important; }
+.dsh-theme-combo > button { position: absolute; right: 1px; top: 1px; height: 28px; width: 28px; border: 0; background: transparent; color: inherit; cursor: pointer; }
+.dsh-theme-options { position: absolute; top: calc(100% + 4px); left: 0; right: 0; z-index: 44; max-height: 240px; overflow-y: auto; padding: 4px;
+  border: 1px solid var(--dsh-ssh-ops-border, #3a414b); border-radius: 6px; background: var(--dsh-ssh-ops-surface, #161b21); box-shadow: 0 8px 24px rgba(0,0,0,.2); }
+.dsh-theme-options > div { padding: 6px 8px; border-radius: 4px; cursor: pointer; overflow-wrap: anywhere; }
+.dsh-theme-options > div[data-active="true"] { background: rgba(45,108,223,.12); }
+.dsh-theme-options > div[aria-selected="true"] { color: #2d6cdf; }
+.dsh-theme-editor { border-top: 1px solid var(--dsh-ssh-ops-border, #3a414b); padding-top: 12px; }
+.dsh-theme-status { color: var(--dsh-ssh-ops-muted, #8b93a1); font-size: 12px; }
+.dsh-theme-editor > .dsh-hint { margin-top: 8px; }
+.dsh-scheme-fill { gap: 8px; }
+.dsh-preview-section { display: flex; flex-direction: column; gap: 8px; flex-shrink: 0; }
+.dsh-theme-menu { position: relative; flex: none; font-size: 12px; }
+.dsh-theme-menu > summary { list-style: none; }
+.dsh-theme-menu > summary::-webkit-details-marker { display: none; }
+.dsh-theme-menu-panel { position: absolute; right: 0; top: calc(100% + 4px); z-index: 43; min-width: 180px;
+  display: flex; flex-direction: column; gap: 4px; padding: 6px; border-radius: 6px;
+  border: 1px solid var(--dsh-ssh-ops-border, #3a414b); background: var(--dsh-ssh-ops-surface, #161b21); box-shadow: 0 8px 24px rgba(0,0,0,.2); }
+.dsh-theme-menu-panel > button { text-align: left; border-color: transparent; }
+.dsh-appearance-body:has([data-expanded="true"]) { overflow-y: auto; }
+.dsh-appearance-section[data-expanded="true"] { flex: 0 0 auto; }
+.dsh-appearance-section[data-expanded="true"] .dsh-scheme-list { flex: 0 0 240px; }
+
+@media (max-width: 720px) {
+  .dsh-appearance-body { overflow-y: auto; }
+  .dsh-appearance-section { flex: 0 0 auto; }
+  .dsh-scheme-list { flex: 0 0 240px; }
+  .dsh-theme-combo { flex-basis: 100%; }
+  .dsh-display-toolbar > label:last-child { margin-left: 0; }
+}
 @media (prefers-reduced-motion: reduce) {
   .dsh-scheme-row { transition: none; }
   .dsh-scheme-ghost { animation: none; transform: none; }
@@ -132,7 +164,6 @@ const STYLES = `
   .dsh-row { grid-template-columns: 1fr; row-gap: 4px; padding-bottom: 4px; }
   .dsh-hint { margin-left: 0 !important; }
   .dsh-popover { left: 0; right: 0; width: auto; }
-  .dsh-theme-group { width: 100%; }
   .dsh-theme-select { flex: 1 1 auto; max-width: none; width: auto; }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -146,23 +177,75 @@ const STYLES = `
 }
 `;
 
-/** Background colour swatch + HEX for the active theme, with a reset affordance. */
-function BackgroundField({ value, onChange, onReset, resetLabel }) {
+/** Background colour swatch + HEX for the editor draft. */
+function BackgroundField({ value, onChange }) {
   const [hex, setHex] = React.useState(value);
-  const label = t("终端背景");
+  const label = t("主题背景");
   React.useEffect(() => setHex(value), [value]);
   return <span style={{ display: "inline-flex", alignItems: "center", gap: 6, fontSize: 12 }}>
     <input type="color" aria-label={label} value={value} onChange={(event) => onChange(event.target.value)}
-      style={{ width: 30, height: 24, padding: 2, boxSizing: "border-box", background: "transparent",
+      style={{ width: 34, height: 30, padding: 2, boxSizing: "border-box", background: "transparent",
         border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 4 }} />
     <input aria-label={label + " HEX"} value={hex} maxLength={7} spellCheck={false}
       onChange={(event) => { setHex(event.target.value); if (/^#[0-9a-f]{6}$/i.test(event.target.value)) onChange(event.target.value); }}
       onBlur={() => setHex(value)}
-      style={{ ...field, height: 24, width: 78, padding: "0 6px", fontFamily: "monospace" }} />
-    {onReset && <button type="button" aria-label={resetLabel} title={resetLabel} onClick={onReset}
-      style={{ ...field, display: "inline-flex", alignItems: "center", justifyContent: "center",
-        height: 24, width: 24, padding: 0, cursor: "pointer", fontSize: 13, color: "var(--dsh-ssh-ops-muted, #8b93a1)" }}>↺</button>}
+      style={{ ...field, height: 30, width: 84, padding: "0 6px", fontFamily: "monospace" }} />
+
   </span>;
+}
+
+// Native disclosure keeps secondary actions keyboard accessible without a modal.
+function ThemeMenu({ label, children }) {
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    const closeOutside = event => { if (!ref.current?.contains(event.target)) ref.current?.removeAttribute("open"); };
+    const escape = event => {
+      if (event.key === "Escape" && ref.current?.open) {
+        event.preventDefault(); event.stopPropagation(); ref.current.open = false; ref.current.querySelector("summary")?.focus();
+      }
+    };
+    document.addEventListener("pointerdown", closeOutside);
+    document.addEventListener("keydown", escape, true);
+    return () => { document.removeEventListener("pointerdown", closeOutside); document.removeEventListener("keydown", escape, true); };
+  }, []);
+  return <details ref={ref} className="dsh-theme-menu">
+    <summary className="dsh-text-button">{label} ▾</summary>
+    <div className="dsh-theme-menu-panel" onClick={event => {
+      if (event.target.closest("button:not(:disabled)")) { ref.current.open = false; ref.current.querySelector("summary")?.focus(); }
+    }}>{children}</div>
+  </details>;
+}
+
+// One editable combobox owns both the theme name and the saved-theme choice.
+function ThemePicker({ value, themes, selectedId, labelFor, onRename, onSelect }) {
+  const [open, setOpen] = React.useState(false);
+  const [active, setActive] = React.useState(0);
+  const ref = React.useRef(null), input = React.useRef(null), listId = React.useId();
+  const choose = record => { setOpen(false); onSelect(record); input.current?.focus(); };
+  React.useEffect(() => {
+    const outside = event => { if (!ref.current?.contains(event.target)) setOpen(false); };
+    document.addEventListener("pointerdown", outside);
+    return () => document.removeEventListener("pointerdown", outside);
+  }, []);
+  const show = () => { setActive(Math.max(0, themes.findIndex(item => item.id === selectedId))); setOpen(true); };
+  return <div ref={ref} className="dsh-theme-combo" onBlur={event => { if (!event.currentTarget.contains(event.relatedTarget)) setOpen(false); }}>
+    <input ref={input} role="combobox" aria-label={t("当前主题")} aria-expanded={open} aria-controls={listId} aria-autocomplete="none"
+      aria-activedescendant={open ? `${listId}-${active}` : undefined} value={value} maxLength={80} style={field}
+      onChange={event => { setOpen(false); onRename(event.target.value); }}
+      onKeyDown={event => {
+        if (event.key === "Escape" && open) { event.preventDefault(); event.stopPropagation(); setOpen(false); }
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          event.preventDefault(); if (!open) show(); else setActive(index => (index + (event.key === "ArrowDown" ? 1 : -1) + themes.length) % themes.length);
+        }
+        if (event.key === "Enter" && open) { event.preventDefault(); choose(themes[active]); }
+      }} />
+    <button type="button" aria-label={t("选择主题")} aria-expanded={open} onClick={() => { if (open) setOpen(false); else show(); input.current?.focus(); }}>▾</button>
+    {open && <div id={listId} role="listbox" aria-label={t("主题列表")} className="dsh-theme-options">
+      {themes.map((record, index) => <div key={record.id} id={`${listId}-${index}`} role="option" aria-selected={selectedId === record.id}
+        data-active={active === index ? "true" : undefined} onPointerMove={() => setActive(index)}
+        onMouseDown={event => event.preventDefault()} onClick={() => choose(record)}>{labelFor(record)}</div>)}
+    </div>}
+  </div>;
 }
 
 function SchemeEntry({ entry, label, onChange, onDelete, dragging, onHandlePointerDown, onShowHint, onHideHint, rowRef, onPatternDraft }) {
@@ -224,16 +307,15 @@ export function TerminalDisplaySettings({ registerCloseGuard } = {}) {
   const settings = React.useSyncExternalStore(subscribeDisplaySettings, getDisplaySettings);
   const persistence = React.useSyncExternalStore(subscribeDisplaySettings, getDisplayPersistence);
   React.useSyncExternalStore(subscribeHostTheme, getHostTheme);
-  const radioName = React.useId(), resolved = resolveDisplayTheme(settings.theme);
+  const radioName = React.useId();
+  const resolved = resolveDisplayTheme(settings.theme);
   const labelFor = (record) => record.id === "builtin:dark" ? t("DSH 默认（深色）") : record.id === "builtin:light" ? t("DSH 默认（浅色）")
-    : record.name === "Previous custom dark" ? t("原有深色方案") : record.name === "Previous custom light" ? t("原有浅色方案") : record.name;
-  const makeEditor = (record, copy = false, blank = false) => {
+    : ["Custom theme", "Previous custom dark", "Previous custom light"].includes(record.name) ? t("自定义主题") : record.name;
+  const makeEditor = record => {
     const draft = JSON.parse(JSON.stringify(record));
-    const readonly = record.id?.startsWith("builtin:");
-    if (copy || readonly) draft.name = blank ? "" : t(`${labelFor(record)} 副本`);
-    const id = copy || readonly ? null : record.id;
-    return { draft, id, sourceId: copy ? null : record.id, revision: record.revision ?? 0,
-      token: Math.random().toString(36), base: copy ? null : JSON.stringify(draft), original: JSON.parse(JSON.stringify(draft)) };
+    draft.name = labelFor(record);
+    return { draft, id: record.id?.startsWith("builtin:") ? null : record.id, sourceId: record.id, revision: record.revision ?? 0,
+      token: Math.random().toString(36), base: JSON.stringify(draft) };
   };
   const activeRecord = themeOptions(settings, resolved).find(item => item.id === selectedThemeId(settings, resolved));
   const [editor, setEditor] = React.useState(() => makeEditor(activeRecord));
@@ -243,6 +325,7 @@ export function TerminalDisplaySettings({ registerCloseGuard } = {}) {
   const replaceEditor = next => { editorRef.current = next; setEditor(next); };
   const isDirty = () => pendingPatterns.current.size > 0 || editorRef.current.base === null || editorRef.current.base !== JSON.stringify(editorRef.current.draft);
   const patternDraft = (id, value) => {
+    if (value) detachBuiltin();
     if (value) pendingPatterns.current.set(id, value); else pendingPatterns.current.delete(id);
     repaintPending(count => count + 1);
   };
@@ -253,7 +336,6 @@ export function TerminalDisplaySettings({ registerCloseGuard } = {}) {
   React.useEffect(() => { if (transition) { transitionRef.current?.scrollIntoView?.({ block: "nearest" }); transitionRef.current?.focus?.(); } }, [transition]);
   const [pendingImport, setPendingImport] = React.useState(null);
   const [pendingDelete, setPendingDelete] = React.useState(null);
-  const [confirmReset, setConfirmReset] = React.useState(null);
   const [preview, setPreview] = React.useState(DEFAULT_PREVIEW_TEXT);
   const [dragId, setDragId] = React.useState(null);
   const importRef = React.useRef(null), importSeq = React.useRef(0);
@@ -262,27 +344,60 @@ export function TerminalDisplaySettings({ registerCloseGuard } = {}) {
   const dirty = isDirty();
   const entries = editor.draft.entries;
   const activeTheme = terminalTheme(editor.draft.theme, { [editor.draft.theme]: editor.draft.background });
-  const updateDraft = patch => { const current = editorRef.current; replaceEditor({ ...current, draft: { ...current.draft, ...patch } }); };
-  const updateEntries = update => { const current = editorRef.current; replaceEditor({ ...current, draft: { ...current.draft,
-    entries: normalizeScheme(update(current.draft.entries)) ?? current.draft.entries } }); };
+  const detachBuiltin = () => {
+    const current = editorRef.current;
+    if (current.sourceId?.startsWith("builtin:")) {
+      const next = { ...current, sourceId: null, draft: { ...current.draft, name: t("自定义主题") } };
+      replaceEditor(next); return next;
+    }
+    return current;
+  };
+  const updateDraft = patch => {
+    if (Object.entries(patch).every(([key, value]) => editorRef.current.draft[key] === value)) return;
+    const current = detachBuiltin();
+    replaceEditor({ ...current, draft: { ...current.draft, ...patch } });
+  };
+  const updateEntries = update => {
+    const entries = normalizeScheme(update(editorRef.current.draft.entries));
+    if (!entries || JSON.stringify(entries) === JSON.stringify(editorRef.current.draft.entries)) return;
+    const current = detachBuiltin();
+    replaceEditor({ ...current, draft: { ...current.draft, entries } });
+  };
   const labels = { error: t("错误与否定"), success: t("成功与肯定"), warning: t("警示状态"), info: t("信息关键词"),
     heading: t("地址、时间与符号"), number: t("数字"), string: t("字符串与路径"), option: t("命令选项"), command: t("命令名称"), debug: t("文件类型"), prompt: t("提示符") };
   const errorText = error => ({
     "invalid-pattern": t("存在无效正则，请修正后保存；草稿仍保留。"),
     "library-too-large": t("主题库文件过大，请分别导出主题。"),
     "settings-not-saved": t("未能写入本机，修改尚未保存。请重试，或先导出草稿。"),
-    "theme-changed": t("主题已在另一窗口修改。请另存为新主题，或放弃草稿后重新打开。"),
-    "theme-name-conflict": t("主题名称已存在，请修改名称或使用另存为。"),
+    "theme-changed": t("主题已在另一窗口修改。请新建主题副本，或放弃修改后重试。"),
+    "theme-name-conflict": t("主题名称已存在，请修改名称。"),
     "invalid-theme-name": t("请输入有效的主题名称（最多 80 个字符）。"),
     "theme-library-full": t("主题库已满，请先删除不需要的主题。"),
-    "theme-not-found": t("主题已被删除，请另存为新主题。"),
+    "theme-not-found": t("主题已被删除，请新建主题副本。"),
   }[error.message] ?? t("操作失败：主题或备份文件无效。"));
   const attempt = action => { try { action(); return true; } catch (error) { setNotice(errorText(error)); return false; } };
   const requestTransition = (action, options = {}) => { if (isDirty()) setTransition({ ...options, run: action }); else action(); };
-  const openEditor = (record, copy = false, blank = false) => requestTransition(() => {
+  const openEditor = record => requestTransition(() => {
     const latest = record.id?.startsWith("builtin:") ? record : allThemes(getDisplaySettings()).find(item => item.id === record.id) ?? record;
-    pendingPatterns.current.clear(); replaceEditor(makeEditor(latest, copy, blank)); setNotice(""); setPendingImport(null);
+    const mode = latest.id.startsWith("builtin:") ? latest.theme : resolved;
+    if (!attempt(() => selectDisplayTheme(mode, latest.id))) return;
+    if (mode !== resolved) setDisplaySettings({ theme: mode });
+    pendingPatterns.current.clear(); replaceEditor(makeEditor(latest)); setNotice(""); setPendingImport(null);
   });
+  const switchMode = value => requestTransition(() => {
+    setDisplaySettings({ theme: value });
+    const state = getDisplaySettings(), mode = resolveDisplayTheme(state.theme);
+    const record = themeOptions(state, mode).find(item => item.id === selectedThemeId(state, mode));
+    pendingPatterns.current.clear(); replaceEditor(makeEditor(record)); setNotice("");
+  });
+  // Follow host mode and other-window assignments without overwriting a draft.
+  const activeSelection = `${resolved}:${activeRecord.id}:${activeRecord.revision ?? 0}`;
+  const observedSelection = React.useRef(activeSelection);
+  React.useEffect(() => {
+    if (observedSelection.current === activeSelection) return;
+    observedSelection.current = activeSelection;
+    if (!isDirty()) { pendingPatterns.current.clear(); replaceEditor(makeEditor(activeRecord)); }
+  }, [activeSelection]);
   React.useEffect(() => {
     registerCloseGuard?.(resume => { if (!isDirty()) return true; setTransition({ run: resume }); return false; });
     return () => registerCloseGuard?.(null);
@@ -299,14 +414,14 @@ export function TerminalDisplaySettings({ registerCloseGuard } = {}) {
       const current = editorRef.current;
       if ([...pendingPatterns.current.values()].some(value => !value.valid)) throw Error("invalid-pattern");
       const draft = composedDraft();
-      saved = saveDisplayTheme(draft, !asNew && current.id ? { id: current.id, expectedRevision: current.revision } : {});
+      if (asNew) draft.name = current.sourceId?.startsWith("builtin:") ? t("自定义主题") : t(`${draft.name} 副本`);
+      saved = saveDisplayTheme(draft, { ...(!asNew && current.id ? { id: current.id, expectedRevision: current.revision } : {}), applyMode: resolved });
     })) return false;
-    pendingPatterns.current.clear(); replaceEditor(makeEditor(saved)); setNotice(t(`已保存主题：${saved.name}`)); return true;
+    pendingPatterns.current.clear(); replaceEditor(makeEditor(saved)); setNotice(""); return true;
   };
   const discardEditor = () => {
     pendingPatterns.current.clear();
-    if (editor.base !== null) replaceEditor({ ...editor, token: Math.random().toString(36), draft: JSON.parse(JSON.stringify(editor.original)) });
-    else replaceEditor(makeEditor(activeRecord));
+    replaceEditor(makeEditor(activeRecord));
     setNotice(t("已放弃未保存的修改。"));
   };
   const change = (id, patch) => updateEntries(scheme => scheme.map(entry => entry.id === id ? { ...entry, ...patch } : entry));
@@ -338,7 +453,7 @@ export function TerminalDisplaySettings({ registerCloseGuard } = {}) {
       const parsed = parseImportFile(text, file.name ?? "");
       const conflicts = parsed.kind === "theme" ? importConflicts(getDisplaySettings(), parsed.record) : [];
       setPendingImport({ ...parsed, text, name: parsed.record?.name ?? "", strategy: "new", targetId: conflicts[0]?.id ?? "", targetRevision: conflicts[0]?.revision, conflicts });
-      setNotice(""); setConfirmReset(null); setPendingDelete(null);
+      setNotice(""); setPendingDelete(null);
     } catch (error) { if (seq === importSeq.current) setNotice(errorText(error)); }
   };
   const confirmImport = () => {
@@ -351,7 +466,7 @@ export function TerminalDisplaySettings({ registerCloseGuard } = {}) {
           importDisplayTheme(pendingImport.text, pendingImport.name, pendingImport.strategy === "update" ? { targetId: target?.id, expectedRevision: pendingImport.targetRevision } : {});
         }
       });
-      if (ok) { setPendingImport(null); setNotice(t("导入完成。新增主题可在深色和浅色下拉框中选择。")); }
+      if (ok) { setPendingImport(null); setNotice(t("导入完成。可在主题下拉框中选择新增主题。")); }
       return ok;
     };
     if (pendingImport.kind === "library" && pendingImport.strategy === "replace") requestTransition(() => { if (operation()) { const state = getDisplaySettings(), mode = resolveDisplayTheme(state.theme); pendingPatterns.current.clear(); replaceEditor(makeEditor(themeOptions(state, mode).find(item => item.id === selectedThemeId(state, mode)))); } }, { destructive: true });
@@ -616,48 +731,30 @@ export function TerminalDisplaySettings({ registerCloseGuard } = {}) {
   }, []);
 
 
-  return <section aria-label={t("终端显示")} className="dsh-appearance-section">
+  return <section aria-label={t("终端显示")} className="dsh-appearance-section" data-expanded={managerOpen || pendingImport || pendingDelete ? "true" : undefined}>
     <style>{STYLES}</style>
     <div style={{ display: "contents" }} inert={transition ? "" : undefined} aria-hidden={transition ? true : undefined}>
-    <div className="dsh-row"><span className="dsh-row-label">{t("显示模式")}</span>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>
-        {[["system", t("跟随 DSH")], ["dark", t("深色")], ["light", t("浅色")]].map(([value, label]) => <label key={value}>
-          <input type="radio" name={radioName} checked={settings.theme === value} onChange={() => setDisplaySettings({ theme: value })} />{label}</label>)}
-        <label><input type="checkbox" checked={settings.highlightEnabled} onChange={event => setDisplaySettings({ highlightEnabled: event.target.checked })} />{t("启用语义高亮")}</label>
+    <div className="dsh-display-toolbar">
+      <span className="dsh-row-label">{t("显示模式")}</span>
+      <div className="dsh-display-modes">{[["system", t("跟随 DSH")], ["dark", t("深色")], ["light", t("浅色")]].map(([value, label]) =>
+        <label key={value}><input type="radio" name={radioName} value={value} checked={settings.theme === value} onChange={() => switchMode(value)} />{label}</label>)}
       </div>
+      <ThemePicker aria-label={t("当前主题")} value={editor.draft.name} themes={[builtinTheme("dark"), builtinTheme("light"), ...allThemes(settings)]}
+        selectedId={editor.sourceId} labelFor={labelFor} onRename={name => updateDraft({ name })} onSelect={openEditor} />
+      <label><input type="checkbox" checked={settings.highlightEnabled} onChange={event => setDisplaySettings({ highlightEnabled: event.target.checked })} />{t("启用语义高亮")}</label>
     </div>
-    <div className="dsh-row"><span className="dsh-row-label">{t("应用主题")}</span>
-      <div style={{ display: "flex", gap: 12, flexWrap: "wrap" }}>{["dark", "light"].map(mode => <label key={mode} className="dsh-theme-group" data-active={mode === resolved ? "true" : undefined}>
-        {mode === "dark" ? t("深色") : t("浅色")}
-        <select className="dsh-theme-select" aria-label={mode === "dark" ? t("深色主题") : t("浅色主题")} value={selectedThemeId(settings, mode)}
-          onChange={event => attempt(() => selectDisplayTheme(mode, event.target.value))}>
-          {themeOptions(settings, mode).map(item => <option key={item.id} value={item.id}>{labelFor(item)}</option>)}
-        </select>{mode === resolved && <span className="dsh-pill">{t("当前显示")}</span>}
-      </label>)}</div>
-    </div>
-    <p className="dsh-hint">{t("所有自定义主题均可用于深色或浅色；主题内的模式只是推荐值。应用主题不改变编辑中的草稿。")}</p>
     {!persistence.saved && <div role="alert" style={{ padding: 8, border: "1px solid #e5484d", borderRadius: 6 }}>
       {t("本次修改尚未写入本机，重新加载可能丢失。可重试保存或导出草稿。")}
       <button type="button" style={button} onClick={() => { if (pendingImport) confirmImport(); else if (isDirty()) saveEditor(); else attempt(retryDisplayPersistence); }}>{t("重试保存")}</button>
     </div>}
-    {notice && <div role="status" style={{ padding: "6px 0", fontSize: 12 }}>{notice}</div>}
-    <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "8px 0" }}>
-      <button type="button" className="dsh-text-button" onClick={() => openEditor(builtinTheme(resolved), true, true)}>{t("新建主题")}</button>
-      <button type="button" className="dsh-text-button" onClick={() => setManagerOpen(value => !value)} aria-expanded={managerOpen}>{t("管理主题")}</button>
-      <button type="button" className="dsh-text-button" onClick={backupLibrary}>{t("备份全部主题")}</button>
-      <button type="button" className="dsh-text-button" onClick={() => { ++importSeq.current; setPendingImport(null); importRef.current?.click(); }}>{t("导入主题或备份")}</button>
-      <button type="button" className="dsh-text-button" onClick={() => setConfirmReset(resolved)}>{t("恢复默认主题")}</button>
-      <input ref={importRef} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={restoreBackup}
-        onCancel={event => { event.stopPropagation(); ++importSeq.current; setPendingImport(null); setNotice(t("已取消选择文件。")); }} />
-    </div>
+    {notice && <div role="status">{notice}</div>}
+    <input ref={importRef} type="file" accept="application/json,.json" style={{ display: "none" }} onChange={restoreBackup}
+      onCancel={event => { event.stopPropagation(); ++importSeq.current; setPendingImport(null); setNotice(t("已取消选择文件。")); }} />
     {managerOpen && <div aria-label={t("主题列表")} style={{ maxHeight: 200, overflow: "auto", border: "1px solid var(--dsh-ssh-ops-border, #3a414b)", borderRadius: 6, padding: 8 }}>
-      {[builtinTheme("dark"), builtinTheme("light"), ...allThemes(settings)].map(item => <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 6, flexWrap: "wrap", marginBottom: 6 }}>
+      {[builtinTheme("dark"), builtinTheme("light"), ...allThemes(settings)].map(item => <div key={item.id} style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
         <span style={{ flex: "1 1 160px", overflowWrap: "anywhere" }}>{labelFor(item)}{item.id.startsWith("builtin:") ? t("（内置，只读）") : ""}</span>
-        <button type="button" style={button} onClick={() => openEditor(item)}>{item.id.startsWith("builtin:") ? t("复制后编辑") : t("编辑")}</button>
-        <button type="button" style={button} onClick={() => openEditor(item, true)}>{t("复制")}</button>
         <button type="button" style={button} onClick={() => exportRecord(item)}>{t("导出")}</button>
         {!item.id.startsWith("builtin:") && <>
-          <button type="button" style={button} onClick={() => openEditor(item)}>{t("重命名")}</button>
           <button type="button" style={button} onClick={() => requestTransition(() => setPendingDelete(allThemes(getDisplaySettings()).find(record => record.id === item.id) ?? item), { destructive: editor.id === item.id })}>{t("删除")}</button>
         </>}
       </div>)}
@@ -672,17 +769,12 @@ export function TerminalDisplaySettings({ registerCloseGuard } = {}) {
       }}>{t("确认删除")}</button>
       <button type="button" style={button} onClick={() => setPendingDelete(null)}>{t("取消")}</button>
     </div>}
-    {confirmReset && <div role="alertdialog" aria-label={t("恢复默认主题确认")} style={{ padding: 10, border: "1px solid #2d6cdf", borderRadius: 6 }}>
-      <p>{confirmReset === "dark" ? t("将深色显示改用 DSH 默认主题，已保存的自定义主题仍保留。") : t("将浅色显示改用 DSH 默认主题，已保存的自定义主题仍保留。")}</p>
-      <button type="button" style={button} onClick={() => { if (attempt(() => selectDisplayTheme(confirmReset, `builtin:${confirmReset}`))) setConfirmReset(null); }}>{t("恢复默认")}</button>
-      <button type="button" style={button} onClick={() => setConfirmReset(null)}>{t("取消")}</button>
-    </div>}
     {pendingImport && <div role="dialog" aria-label={t("确认导入主题")} style={{ padding: 10, border: "1px solid #2d6cdf", borderRadius: 6, margin: "8px 0" }}>
       {pendingImport.kind === "theme" ? <>
         <p>{t("单主题文件。新增导入不会自动应用；更新已应用的主题会同步更新其显示。")}</p>
         <label>{t("主题名称")}<input aria-label={t("自定义主题名称")} value={pendingImport.name} maxLength={80} style={field}
           onChange={event => setPendingImport({ ...pendingImport, name: event.target.value })} /></label>
-        <p>{pendingImport.record.theme === "dark" ? t("推荐深色，可在两个下拉框中选择。") : t("推荐浅色，可在两个下拉框中选择。")}
+        <p>{t("可用于深色或浅色显示。")}
           {t(`背景：${pendingImport.record.background}；规则数：${pendingImport.record.entries.length}`)}</p>
         {pendingImport.conflicts.length > 0 && <p>{t("发现已有同名、同标识或同内容主题。可新增副本、更新已有主题，或跳过。")}</p>}
         <label><input type="radio" checked={pendingImport.strategy === "new"} onChange={() => setPendingImport({ ...pendingImport, strategy: "new" })} />{t("新增副本")}</label>
@@ -701,34 +793,21 @@ export function TerminalDisplaySettings({ registerCloseGuard } = {}) {
         <button type="button" style={button} onClick={() => { setPendingImport(null); setNotice(t("已跳过导入。")); }}>{t("跳过／取消")}</button>
       </div>
     </div>}
-    <div style={{ borderTop: "1px solid var(--dsh-ssh-ops-border, #3a414b)", marginTop: 12, paddingTop: 10 }}>
-      <div className="dsh-row"><span className="dsh-row-label">{t("正在编辑")}</span>
-        <select aria-label={t("编辑目标主题")} style={field} value={editor.sourceId ?? "new"} onChange={event => {
-          const record = [builtinTheme("dark"), builtinTheme("light"), ...allThemes(settings)].find(item => item.id === event.target.value);
-          if (record) openEditor(record);
-        }}>
-          {!editor.sourceId && <option value="new">{t("未保存的新主题")}</option>}
-          {[builtinTheme("dark"), builtinTheme("light"), ...allThemes(settings)].map(item => <option key={item.id} value={item.id}>{labelFor(item)}</option>)}
-        </select>
+    <div className="dsh-theme-editor">
+      <div className="dsh-theme-toolbar">
+        <div className="dsh-theme-background"><span className="dsh-row-label">{t("主题背景")}</span><BackgroundField value={editor.draft.background}
+          onChange={background => updateDraft({ background })} /></div>
+        <span className="dsh-theme-status" style={{ flex: 1 }}>{dirty ? t("未保存") : ""}</span>
+        {dirty && <button type="button" className="dsh-text-button" onClick={discardEditor}>{t("放弃修改")}</button>}
+        <button type="button" className="dsh-text-button dsh-primary" disabled={!dirty || !themeName(editor.draft.name)} onClick={() => saveEditor()}>{t("保存主题")}</button>
+        <button type="button" className="dsh-text-button" disabled={!themeName(editor.draft.name)} onClick={() => saveEditor(true)}>{t("新建主题副本")}</button>
+        <ThemeMenu label={t("更多操作")}>
+          <button type="button" className="dsh-text-button" disabled={!themeName(editor.draft.name)} onClick={() => exportRecord({ ...composedDraft(), id: editor.id ?? undefined })}>{dirty ? t("导出草稿") : t("导出此主题")}</button>
+          <button type="button" className="dsh-text-button" onClick={() => setManagerOpen(value => !value)} aria-expanded={managerOpen}>{t("管理主题")}</button>
+          <button type="button" className="dsh-text-button" onClick={backupLibrary}>{t("备份全部主题")}</button>
+          <button type="button" className="dsh-text-button" onClick={() => { ++importSeq.current; setPendingImport(null); importRef.current?.click(); }}>{t("导入主题或备份")}</button>
+        </ThemeMenu>
       </div>
-      <div className="dsh-row"><label className="dsh-row-label" htmlFor={`${radioName}-name`}>{t("主题名称")}</label>
-        <input id={`${radioName}-name`} aria-label={t("编辑主题名称")} style={field} maxLength={80} value={editor.draft.name} onChange={event => updateDraft({ name: event.target.value })} />
-      </div>
-      <div className="dsh-row"><span className="dsh-row-label">{t("推荐模式")}</span>
-        <select aria-label={t("推荐模式")} style={field} value={editor.draft.theme} onChange={event => updateDraft({ theme: event.target.value })}>
-          <option value="dark">{t("深色")}</option><option value="light">{t("浅色")}</option>
-        </select>
-      </div>
-      <div className="dsh-row"><span className="dsh-row-label">{t("草稿背景")}</span><BackgroundField value={editor.draft.background}
-        onChange={background => updateDraft({ background })} onReset={() => updateDraft({ background: DEFAULT_BACKGROUNDS[editor.draft.theme] })} resetLabel={t("恢复推荐模式的默认背景")} /></div>
-      <div style={{ display: "flex", gap: 8, flexWrap: "wrap", margin: "8px 0" }}>
-        <button type="button" style={button} disabled={!dirty || !themeName(editor.draft.name)} onClick={() => saveEditor()}>{editor.id ? t("保存主题") : t("保存为新主题")}</button>
-        <button type="button" style={button} disabled={!themeName(editor.draft.name)} onClick={() => saveEditor(true)}>{t("另存为新主题")}</button>
-        <button type="button" style={button} disabled={!dirty} onClick={discardEditor}>{t("放弃修改")}</button>
-        <button type="button" style={button} disabled={!themeName(editor.draft.name)} onClick={() => exportRecord({ ...composedDraft(), id: editor.id ?? undefined })}>{dirty ? t("导出草稿") : t("导出此主题")}</button>
-        <span className="dsh-pill">{dirty ? t("未保存") : t("已保存／未修改")}</span>
-      </div>
-      <p className="dsh-hint">{t("下方仅预览编辑草稿，不影响实时终端。保存已应用的自定义主题后，使用该主题的深浅显示会一起更新。完整备份不包含未保存草稿。")}</p>
     </div>
     <fieldset className="dsh-scheme-fieldset">
       <div className="dsh-scheme-fill">
@@ -742,11 +821,13 @@ export function TerminalDisplaySettings({ registerCloseGuard } = {}) {
               onDelete={custom ? () => updateEntries(scheme => scheme.filter(item => item.id !== entry.id)) : undefined} />;
           })}<div ref={indicator} className="dsh-drop-indicator" aria-hidden="true" />
         </div>
-        <button type="button" style={{ ...button, alignSelf: "flex-start", marginTop: 8 }} disabled={Boolean(pendingEntry) || entries.length >= MAX_SCHEME_ENTRIES} onClick={addEntry}>{t("添加配色项")}</button>
+        <button type="button" style={{ ...button, alignSelf: "flex-start" }} disabled={Boolean(pendingEntry) || entries.length >= MAX_SCHEME_ENTRIES} onClick={addEntry}>{t("添加配色项")}</button>
       </div>
     </fieldset>
-    <div className="dsh-section-title" style={{ margin: "12px 0 8px" }}>{t("草稿预览")}</div>
-    <EditablePreview text={preview} onChange={setPreview} theme={activeTheme} entries={entries} />
+    <div className="dsh-preview-section">
+      <div className="dsh-section-title">{t("草稿预览")}</div>
+      <EditablePreview text={preview} onChange={setPreview} theme={activeTheme} entries={entries} />
+    </div>
     </div>
     {transition && <div ref={transitionRef} tabIndex={-1} role="alertdialog" aria-modal="true" aria-label={t("未保存的主题修改")}
       onKeyDown={event => {

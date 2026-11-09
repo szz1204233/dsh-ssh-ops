@@ -46,20 +46,16 @@ function canonical(entries) { return getScheme({ schemes: { dark: entries } }, "
 export function sameAppearance(a, b) {
   return a.background === b.background && JSON.stringify(canonical(a.entries)) === JSON.stringify(canonical(b.entries));
 }
-function customized(state, mode) {
-  return state.schemes?.[mode] !== undefined || state.backgrounds?.[mode] !== undefined || Object.keys(state.colors?.[mode] ?? {}).length > 0
-    || state.customRules?.length > 0 || state.builtinEnabled === false;
-}
 export function selectedThemeId(state, mode) {
   const current = currentAppearance(state, mode), requested = findTheme(state, mode, state.selectedThemes?.[mode]);
   if (requested && sameAppearance(current, requested)) return requested.id;
   const legacy = findTheme(state, mode, `legacy:${mode}`);
   if (legacy && sameAppearance(current, legacy)) return legacy.id;
-  if (!customized(state, mode) && sameAppearance(current, builtinTheme(mode))) return `builtin:${mode}`;
+  if (sameAppearance(current, builtinTheme(mode))) return `builtin:${mode}`;
   return legacy ? `current:${mode}` : `legacy:${mode}`;
 }
 function ephemeral(state, mode) {
-  return { id: selectedThemeId(state, mode), name: mode === "dark" ? "Previous custom dark" : "Previous custom light", theme: mode,
+  return { id: selectedThemeId(state, mode), name: "Custom theme", theme: mode,
     ...currentAppearance(state, mode), revision: 0 };
 }
 export function allThemes(state) {
@@ -114,7 +110,7 @@ export function selectThemePatch(state, mode, id) {
   if (!findTheme(captured, mode, target)) throw Error("theme-not-found");
   return materialize(state, captured.themeLibrary, { ...captured.selectedThemes, [mode]: target }, [mode]);
 }
-export function saveThemePatch(state, record, { id, expectedRevision, newId } = {}) {
+export function saveThemePatch(state, record, { id, expectedRevision, newId, applyMode } = {}) {
   if (id?.startsWith("builtin:")) throw Error("builtin-read-only");
   const captured = capture(state), key = captured.aliases[id] ?? id ?? newId ?? newThemeId();
   const existing = captured.themeLibrary.find(item => item.id === key);
@@ -128,8 +124,10 @@ export function saveThemePatch(state, record, { id, expectedRevision, newId } = 
   if (!saved) throw Error("invalid-theme");
   const list = existing ? captured.themeLibrary.map(item => item.id === key ? saved : item) : [...captured.themeLibrary, saved];
   capacity(list);
-  const affected = MODES.filter(mode => captured.selectedThemes[mode] === key);
-  return { id: key, record: saved, patch: affected.length ? materialize(state, list, captured.selectedThemes, affected)
+  if (applyMode !== undefined && !MODES.includes(applyMode)) throw Error("invalid-theme-mode");
+  const assignments = { ...captured.selectedThemes, ...(applyMode ? { [applyMode]: key } : {}) };
+  const affected = MODES.filter(mode => assignments[mode] === key);
+  return { id: key, record: saved, patch: affected.length ? materialize(state, list, assignments, affected)
     : { themeLibrary: list, selectedThemes: captured.selectedThemes } };
 }
 export function deleteThemePatch(state, _mode, id, expectedRevision) {

@@ -34,6 +34,18 @@ test("fresh profiles have no migration writes; custom themes occur in both selec
   assert.equal(f.store.getSnapshot().highlightEnabled, false);
 });
 
+test("profiles matching DSH defaults expose no custom themes; changed appearances are named Custom theme", () => {
+  const state = { schemes: { dark: builtinTheme("dark").entries, light: builtinTheme("light").entries },
+    backgrounds: { dark: builtinTheme("dark").background, light: builtinTheme("light").background } };
+  assert.equal(allThemes(state).length, 0);
+  assert.equal(selectedThemeId(state, "dark"), "builtin:dark");
+  assert.equal(selectedThemeId(state, "light"), "builtin:light");
+  const custom = { ...state, backgrounds: { ...state.backgrounds, dark: "#123456" } };
+  assert.equal(allThemes(custom).length, 1);
+  assert.equal(allThemes(custom)[0].name, "Custom theme");
+  assert.equal(allThemes(custom)[0].background, "#123456");
+});
+
 test("v0.4.8 schemes survive default selection and selection back, without inferred overwrites", () => {
   const initial = { theme: "dark", highlightEnabled: true, schemes: { dark: release.dark.entries, light: release.light.entries }, backgrounds: { dark: "#121212", light: "#eeeeee" } };
   const f = fixture(initial), stored = f.values.get(KEY);
@@ -65,6 +77,23 @@ test("save-as and rename retain stable identity and update both active assignmen
   assert.equal(allThemes(f.store.getSnapshot()).find(item => item.id === clone.id).background, "#123456");
   assert.throws(() => save(f.store, { ...updated, name: clone.name }, { id: a.id }), /theme-name-conflict/);
   assert.throws(() => save(f.store, builtinTheme("dark"), { id: "builtin:dark" }), /builtin-read-only/);
+});
+
+test("save and apply commit a new theme and its assignment in one storage write", () => {
+  const f = fixture(), before = f.store.getSnapshot();
+  let writes = 0; const setItem = f.options.storage.setItem;
+  f.options.storage.setItem = (...args) => { writes++; setItem(...args); };
+  const a = save(f.store, record("Selected copy", "#aabbcc"), { applyMode: "light" });
+  const persisted = JSON.parse(f.values.get(KEY));
+  assert.equal(writes, 1);
+  assert.equal(persisted.themeLibrary[0].id, a.id);
+  assert.equal(persisted.selectedThemes.light, a.id);
+  assert.equal(persisted.backgrounds.light, "#aabbcc");
+  assert.equal(persisted.selectedThemes.dark, "builtin:dark");
+  assert.equal(before.themeLibrary, undefined);
+  const snapshot = f.store.getSnapshot();
+  assert.throws(() => save(f.store, record("Invalid"), { applyMode: "unknown" }), /invalid-theme-mode/);
+  assert.equal(f.store.getSnapshot(), snapshot);
 });
 
 test("single-theme import previews conflicts and supports explicit update or copy", () => {

@@ -9,6 +9,22 @@
  * `npm run i18n:extract` — it reports missing and orphaned entries.
  */
 export const en = {
+  "选择主题": "Choose theme",
+  "自定义主题": "Custom theme",
+  "新建主题副本": "Create theme copy",
+  "主题已在另一窗口修改。请新建主题副本，或放弃修改后重试。": "This theme changed in another window. Create a theme copy, or discard your changes and retry.",
+  "主题名称已存在，请修改名称。": "This theme name is already used. Choose another name.",
+  "主题已被删除，请新建主题副本。": "This theme was deleted. Create a theme copy.",
+  "可用于深色或浅色显示。": "Available for dark or light display.",
+  "导入完成。可在主题下拉框中选择新增主题。": "Import complete. Select the added themes in the theme dropdown.",
+  "当前主题": "Current theme",
+  "主题背景": "Theme background",
+  "修改仅供预览，保存后应用到当前显示模式。": "Changes are previews. Save to apply them to the current display mode.",
+  "内置模板": "Built-in template",
+  "未修改": "Unchanged",
+  "更多操作": "More actions",
+  "内置主题仅作模板，修改后保存为自己的主题。": "Built-in themes are templates. Save your changes as your own theme.",
+  "草稿仅供预览；保存后更新已应用的主题，新主题需在上方选择应用。": "Drafts are previews. Saving updates applied themes; select a new theme above to apply it.",
   "此操作会删除或替换已保存主题。请先导出草稿，或放弃修改后继续。": "This operation deletes or replaces saved themes. Export the draft first, or discard it and continue.",
   "导出草稿后继续": "Export draft and continue",
   "DSH 默认（深色）": "DSH default (dark)",

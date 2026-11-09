@@ -59,13 +59,14 @@ function fresh() {
   return render();
 }
 const field = (tree, label) => nodes(tree).find(node => node.props?.["aria-label"] === label);
-const setName = (tree, name) => field(tree, "编辑主题名称").props.onChange({ target: { value: name } });
+const setName = (tree, name) => field(tree, "当前主题").props.onRename(name);
 const setBackground = (tree, color) => nodes(tree).find(node => typeof node.type === "function" && node.type.name === "BackgroundField").props.onChange(color);
-const selectEditor = (tree, id) => field(tree, "编辑目标主题").props.onChange({ target: { value: id } });
+const selectEditor = (tree, id) => field(tree, "当前主题").props.onSelect([app.builtinTheme("dark"), app.builtinTheme("light"), ...library()].find(item => item.id === id));
+const selectMode = (tree, value) => nodes(tree).find(node => node.type === "input" && node.props.type === "radio" && node.props.value === value).props.onChange();
 const library = () => app.allThemes(app.getDisplaySettings());
 function create(name, color) {
-  let tree = render(); button(tree, "新建主题").props.onClick(); tree = render();
-  setName(tree, name); setBackground(tree, color); tree = render(); button(tree, "保存为新主题").props.onClick();
+  let tree = render(); button(tree, "新建主题副本").props.onClick(); tree = render();
+  setName(tree, name); setBackground(tree, color); tree = render(); button(tree, "保存主题").props.onClick();
   return library().find(item => item.name === name);
 }
 function radio(tree, text) {
@@ -92,17 +93,57 @@ test("file cancellation cannot close appearance, and registered close guards can
   resume(); app.begin(); tree = app.TerminalAppearanceButton({}); assert.ok(!nodes(tree).some(node => typeof node.type === "function"));
 });
 
-test("new, edit and save-as use independent named themes and do not apply new themes implicitly", () => {
+test("built-in template edits save and apply a new custom theme without overwriting the built-in", () => {
+  let tree = fresh();
+  const builtin = app.builtinTheme("dark");
+  assert.equal(field(tree, "当前主题").props.selectedId, "builtin:dark");
+  assert.equal(button(tree, "保存主题").props.disabled, true);
+  assert.ok(button(tree, "新建主题副本"));
+  setBackground(tree, "#abcdef"); tree = render();
+  assert.equal(button(tree, "保存主题").props.disabled, false);
+  assert.equal(field(tree, "当前主题").props.value, "自定义主题");
+  assert.equal(field(tree, "当前主题").props.selectedId, null);
+  button(tree, "保存主题").props.onClick(); tree = render();
+  assert.equal(library().length, 1);
+  assert.equal(library()[0].background, "#abcdef");
+  assert.equal(field(tree, "当前主题").props.selectedId, library()[0].id);
+  assert.deepEqual(app.builtinTheme("dark"), builtin);
+  assert.equal(app.getDisplaySettings().selectedThemes.dark, library()[0].id);
+  assert.equal(app.getDisplaySettings().backgrounds.dark, "#abcdef");
+  assert.ok(button(tree, "保存主题"));
+  const id = library()[0].id;
+  setBackground(tree, "#aabbcc"); tree = render(); button(tree, "保存主题").props.onClick();
+  assert.equal(library().length, 1);
+  assert.equal(library()[0].id, id);
+  assert.equal(library()[0].name, "自定义主题");
+  assert.equal(library()[0].background, "#aabbcc");
+});
+
+test("selecting a theme edits it and save-as selects an independent named copy", () => {
   fresh(); const a = create("A", "#aaaaaa"), b = create("B", "#bbbbbb");
-  assert.ok(a && b && a.id !== b.id); assert.equal(app.getDisplaySettings().backgrounds, undefined);
+  assert.ok(a && b && a.id !== b.id); assert.equal(app.getDisplaySettings().backgrounds.dark, "#bbbbbb");
   let tree = render(); selectEditor(tree, a.id); tree = render(); setBackground(tree, "#abcdef"); tree = render();
   assert.equal(library().find(item => item.id === a.id).background, "#aaaaaa");
   button(tree, "保存主题").props.onClick(); tree = render();
   assert.equal(library().find(item => item.id === a.id).background, "#abcdef");
   selectEditor(tree, b.id); tree = render(); setBackground(tree, "#eeeeee"); tree = render(); button(tree, "保存主题").props.onClick(); tree = render();
   assert.equal(library().find(item => item.id === a.id).background, "#abcdef");
-  button(tree, "另存为新主题").props.onClick(); assert.equal(library().length, 3);
-  tree = render(); for (const mode of ["深色主题", "浅色主题"]) assert.ok(nodes(field(tree, mode)).some(node => node.type === "option" && node.props.value === a.id));
+  button(tree, "新建主题副本").props.onClick(); assert.equal(library().length, 3);
+  tree = render(); assert.notEqual(app.getDisplaySettings().selectedThemes.dark, b.id);
+  assert.equal(app.getDisplaySettings().selectedThemes.dark, field(tree, "当前主题").props.selectedId);
+  for (const mode of ["dark", "light"]) { selectMode(tree, mode); tree = render(); assert.ok(field(tree, "当前主题").props.themes.some(item => item.id === a.id)); }
+});
+
+test("explicit copy preserves the original custom theme while including unsaved edits", () => {
+  fresh(); const original = create("Original", "#112233"); let tree = render();
+  setBackground(tree, "#aabbcc"); tree = render();
+  button(tree, "新建主题副本").props.onClick(); tree = render();
+  assert.equal(library().length, 2);
+  assert.equal(library().find(item => item.id === original.id).background, "#112233");
+  const copied = library().find(item => item.id !== original.id);
+  assert.equal(copied.background, "#aabbcc");
+  assert.equal(copied.name, "Original 副本");
+  assert.equal(field(tree, "当前主题").props.selectedId, copied.id);
 });
 
 test("switching editors offers save, discard or cancel and preserves pending changes", () => {
@@ -112,12 +153,28 @@ test("switching editors offers save, discard or cancel and preserves pending cha
   assert.equal(field(tree, "未保存的主题修改").props["aria-modal"], "true");
   assert.ok(nodes(tree).some(node => node.props?.inert === ""));
   button(field(tree, "未保存的主题修改"), "取消").props.onClick(); tree = render();
-  assert.equal(field(tree, "编辑目标主题").props.value, a.id);
+  assert.equal(field(tree, "当前主题").props.selectedId, a.id);
   selectEditor(tree, b.id); tree = render(); button(tree, "保存后继续").props.onClick(); tree = render();
-  assert.equal(field(tree, "编辑目标主题").props.value, b.id);
+  assert.equal(field(tree, "当前主题").props.selectedId, b.id);
   assert.equal(library().find(item => item.id === a.id).background, "#123456");
   setBackground(tree, "#654321"); tree = render(); selectEditor(tree, a.id); tree = render(); button(tree, "放弃修改后继续").props.onClick();
   assert.equal(library().find(item => item.id === b.id).background, "#bbbbbb");
+});
+
+test("display-mode switching protects edits and loads the selected theme for each mode", () => {
+  fresh(); const a = create("Dark theme", "#123456"); let tree = render();
+  selectMode(tree, "light"); tree = render();
+  assert.equal(field(tree, "当前主题").props.selectedId, "builtin:light");
+  setBackground(tree, "#eeeecc"); tree = render();
+  selectMode(tree, "dark"); tree = render();
+  assert.equal(app.getDisplaySettings().theme, "light");
+  assert.ok(field(tree, "未保存的主题修改"));
+  button(tree, "取消").props.onClick(); tree = render();
+  assert.equal(field(tree, "当前主题").props.value, "自定义主题");
+  selectMode(tree, "dark"); tree = render(); button(tree, "放弃修改后继续").props.onClick(); tree = render();
+  assert.equal(field(tree, "当前主题").props.selectedId, a.id);
+  assert.equal(field(tree, "当前主题").props.value, "Dark theme");
+  assert.equal(app.getDisplaySettings().selectedThemes.light, "builtin:light");
 });
 
 test("single-theme import supports copy and update and is available in both modes", async () => {
@@ -125,7 +182,7 @@ test("single-theme import supports copy and update and is available in both mode
   tree = await chooseFile(tree, text); assert.ok(field(tree, "确认导入主题"));
   button(tree, "确认导入").props.onClick(); tree = render(); const a = library().find(item => item.name === "Imported");
   assert.ok(a); assert.equal(app.getDisplaySettings().backgrounds, undefined);
-  for (const mode of ["深色主题", "浅色主题"]) field(tree, mode).props.onChange({ target: { value: a.id } });
+  for (const mode of ["dark", "light"]) { selectMode(tree, mode); tree = render(); selectEditor(tree, a.id); tree = render(); }
   assert.deepEqual(app.getDisplaySettings().backgrounds, { dark: "#112233", light: "#112233" });
   tree = await chooseFile(render(), app.exportScheme({ backgrounds: { dark: "#abcdef" } }, "dark", "Imported"));
   radio(tree, "更新已有主题").props.onChange(); tree = render(); button(tree, "确认导入").props.onClick();
@@ -145,9 +202,11 @@ test("draft export uses its explicit target, and full backup excludes unsaved dr
 });
 
 test("storage failure keeps the draft and retry actually saves that draft", () => {
-  let tree = fresh(); button(tree, "新建主题").props.onClick(); tree = render(); setName(tree, "Rescue"); setBackground(tree, "#abcdef"); tree = render();
-  storageBlocked = true; button(tree, "保存为新主题").props.onClick(); tree = render();
-  assert.equal(library().length, 0); assert.equal(field(tree, "编辑主题名称").props.value, "Rescue"); assert.equal(app.getDisplayPersistence().saved, false);
+  let tree = fresh(); setName(tree, "Rescue"); setBackground(tree, "#abcdef"); tree = render();
+  const before = app.getDisplaySettings();
+  storageBlocked = true; button(tree, "保存主题").props.onClick(); tree = render();
+  assert.deepEqual(app.getDisplaySettings().selectedThemes, before.selectedThemes);
+  assert.equal(library().length, 0); assert.equal(field(tree, "当前主题").props.value, "Rescue"); assert.equal(app.getDisplayPersistence().saved, false);
   storageBlocked = false; button(tree, "重试保存").props.onClick();
   assert.equal(library()[0].name, "Rescue"); assert.equal(app.getDisplayPersistence().saved, true);
 });
@@ -155,7 +214,7 @@ test("storage failure keeps the draft and retry actually saves that draft", () =
 test("pending keyword input is reported before Enter and included when saving the editor", () => {
   let tree = fresh(); const row = nodes(tree).find(node => typeof node.type === "function" && node.props.entry);
   row.props.onPatternDraft({ text: "ERROR\\s+\\d+", valid: true }); tree = render();
-  button(tree, "保存为新主题").props.onClick();
+  button(tree, "保存主题").props.onClick();
   assert.equal(library()[0].entries.find(item => item.id === row.props.entry.id).text, "ERROR\\s+\\d+");
   app.reset(); let pending;
   const props = { label: "test", text: "fatal", onChange() {}, onPendingChange(value) { pending = value; } };
@@ -167,7 +226,7 @@ test("pending keyword input is reported before Enter and included when saving th
 
 test("manager deletes an unused theme without applying it or overwriting another theme", () => {
   fresh(); const a = create("A", "#aaaaaa"), b = create("B", "#bbbbbb"); let tree = render();
-  field(tree, "深色主题").props.onChange({ target: { value: a.id } }); tree = render();
+  selectEditor(tree, a.id); tree = render();
   button(tree, "管理主题").props.onClick(); tree = render();
   const row = nodes(tree).find(node => node.type === "div" && node.props.children.flat(Infinity).some(child => child?.type === "span" && child.props.children.includes("B")));
   button(row, "删除").props.onClick(); tree = render(); button(tree, "确认删除").props.onClick();

@@ -82,12 +82,12 @@ export function PatternTags({ label, text, disabled, onChange, onPendingChange }
                 if (event.key === "Enter") { event.preventDefault(); commitEdit(); }
                 if (event.key === "Escape") { event.preventDefault(); event.stopPropagation(); onPendingChange?.(null); setEditDraft(""); setEditing(null); setError(""); }
               }}
-              style={{ minWidth: 0, width: Math.min(190, Math.max(48, (editDraft.length + 1) * 7)), fontFamily: "monospace", fontSize: 11, lineHeight: "20px",
+              style={{ minWidth: 0, width: Math.min(190, Math.max(48, (editDraft.length + 1) * 7)), fontFamily: "monospace", fontSize: 12, lineHeight: "20px",
                 padding: "0 5px", border: 0, outline: 0, background: "transparent",
                 color: problems.get(source) ? "#e5484d" : "inherit" }} />
           : <button type="button" disabled={disabled} title={source} aria-label={t(`编辑 ${label} 标签 ${source}`)}
               onMouseDown={(event) => event.preventDefault()} onClick={() => beginEdit(index, source)}
-              style={{ minWidth: 0, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "monospace", fontSize: 11, lineHeight: "20px", padding: "0 5px",
+              style={{ minWidth: 0, maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontFamily: "monospace", fontSize: 12, lineHeight: "20px", padding: "0 5px",
                 border: 0, background: "transparent", color: problems.get(source) ? "#e5484d" : "inherit", cursor: "text" }}>{source}</button>}
         <button type="button" disabled={disabled} aria-label={t(`删除 ${label} 标签 ${source}`)} onMouseDown={(event) => event.preventDefault()}
           onClick={() => { onChange(patterns.filter((_, i) => i !== index).join("\n")); onPendingChange?.(null); setDraft(""); setEditing(null); setEditDraft(""); setError(""); input.current?.focus(); }}
@@ -112,8 +112,8 @@ export function PatternTags({ label, text, disabled, onChange, onPendingChange }
           if (!fits(unique)) return;
           onChange(unique.join("\n")); onPendingChange?.(null); setDraft(""); setError("");
         }}
-        style={{ flex: "1 1 110px", minWidth: 80, width: 110, border: 0, outline: 0, padding: "3px 4px", fontFamily: "monospace", fontSize: 11, lineHeight: "20px", color: "inherit", background: "transparent" }} />
+        style={{ flex: "1 1 110px", minWidth: 80, width: 110, border: 0, outline: 0, padding: "3px 4px", fontFamily: "monospace", fontSize: 12, lineHeight: "20px", color: "inherit", background: "transparent" }} />
     </div>
-    {(error || invalid) && <div role="alert" style={{ color: "#e5484d", fontSize: 11, marginTop: 5 }}>{error || t("存在无效正则，请点击标签修改。")}</div>}
+    {(error || invalid) && <div role="alert" style={{ color: "#e5484d", fontSize: 12, marginTop: 5 }}>{error || t("存在无效正则，请点击标签修改。")}</div>}
   </div>;
 }
